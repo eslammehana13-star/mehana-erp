@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>إدارة المخزون</title>
+<style>
+  :root {
+    --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
+    --primary: #1F5065; --primary-dark: #123244; --danger: #A6402F;
+    --warn-bg: #F5EBD6; --warn-border: #B8862E; --border: #DCE1DF;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Dubai', 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; }
+  h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
+  .alert { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .alert strong { color: #7A5A19; }
+  .alert ul { margin: 6px 0 0; padding-inline-start: 18px; }
+  form { display: flex; flex-wrap: wrap; gap: 8px; }
+  input, select { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; flex: 1; min-width: 110px; background: #fff; color: var(--text); transition: border-color .15s ease; }
+  input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,80,101,0.12); }
+  button { padding: 9px 16px; border: none; border-radius: 8px; background: var(--primary); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, transform .1s ease; }
+  button:hover { background: var(--primary-dark); }
+  button:active { transform: scale(0.98); }
+  button:focus-visible { outline: 2px solid var(--warn-border, #B8862E); outline-offset: 2px; }
+  button.secondary { background: var(--surface-alt, #E7EAE7); color: var(--text); border: 1px solid var(--border); }
+  button.danger { background: var(--danger); }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
+  .low { color: var(--danger); font-weight: 700; }
+  .offer-badge { background: #F2E1DC; color: var(--danger); font-size: 11px; padding: 1px 6px; border-radius: 8px; margin-inline-start: 4px; }
+  .row-actions { display: flex; gap: 6px; }
+  .row-actions button { padding: 4px 8px; font-size: 12px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button { background: #E7EAE7; color: var(--text); }
+  .tabs button.active { background: var(--primary); color: #fff; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
+  nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
+  nav a.active { background: var(--primary); color: #fff; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="dashboard.html">🏠 الرئيسية</a>
+  <a href="inventory.html" class="active">📦 المخزون</a>
+  <a href="customers.html">💰 العملاء</a>
+  <a href="checks.html">🧾 الشيكات</a>
+  <a href="targets.html">🎯 الأهداف</a>
+</nav>
+
+
+<h1>📦 إدارة المخزون</h1>
+
+<div id="alertBox"></div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>إضافة منتج جديد</h2>
+  </div>
+  <form id="productForm">
+    <input type="text" id="p_name" placeholder="اسم المنتج" required>
+    <input type="text" id="p_sku" placeholder="الكود (SKU)">
+    <input type="text" id="p_unit" placeholder="الوحدة (قطعة/كرتونة..)" value="قطعة">
+    <input type="text" id="p_category" placeholder="التصنيف (بوتجاز/MDA/SDA..)">
+    <input type="text" id="p_description" placeholder="وصف المنتج">
+    <input type="number" id="p_reorder" placeholder="حد إعادة الطلب" value="0" min="0">
+    <input type="number" id="p_price" placeholder="السعر الأساسي" value="0" min="0" step="0.01">
+    <input type="number" id="p_opening" placeholder="الرصيد الافتتاحي" value="0" min="0">
+    <button type="submit">إضافة</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>تسجيل حركة مخزون (وارد / صادر)</h2>
+  </div>
+  <form id="txForm">
+    <select id="t_product" required></select>
+    <select id="t_type">
+      <option value="in">وارد (+)</option>
+      <option value="out">صادر (-)</option>
+    </select>
+    <input type="number" id="t_qty" placeholder="الكمية" min="1" required>
+    <input type="text" id="t_ref" placeholder="ملاحظة / سبب الحركة">
+    <button type="submit">تسجيل الحركة</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>عرض على منتج (سعر مؤقت)</h2>
+  </div>
+  <p class="muted">حدد سعر عرض جديد يحل محل السعر الأساسي، أو سيب الحقل فاضي واضغط "إلغاء العرض" عشان يرجع للسعر الأساسي.</p>
+  <form id="offerForm">
+    <select id="of_product" required></select>
+    <input type="number" id="of_price" placeholder="سعر العرض الجديد" min="0" step="0.01">
+    <button type="submit">تفعيل العرض</button>
+    <button type="button" class="secondary" id="btnClearOffer">إلغاء العرض</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>تحديث ATP والكمية الجاية (Incoming)</h2>
+  </div>
+  <p class="muted">الأرقام دي بتيجيلك من المصنع/المخزن المركزي وممكن تتحدث أكتر من مرة في الشهر — كل تحديث بيتسجل بتاريخه.</p>
+  <form id="statusForm">
+    <select id="st_product" required></select>
+    <input type="number" id="st_atp" placeholder="ATP الجديد (سيبه فاضي لو مفيش تحديث)">
+    <input type="number" id="st_incoming" placeholder="الكمية الجاية الجديدة (سيبه فاضي لو مفيش تحديث)">
+    <input type="text" id="st_note" placeholder="ملاحظة (اختياري)">
+    <button type="submit">تسجيل التحديث</button>
+  </form>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>الأصناف والأرصدة الحالية</h2>
+    <div>
+      <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
+      <input type="file" id="importFile" accept=".json" style="display:none">
+      <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th>الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الكمية الجاية</th><th>آخر تحديث</th><th>إجراءات</th></tr>
+    </thead>
+    <tbody id="productsTable"></tbody>
+  </table>
+  <p class="muted" id="emptyState" style="display:none">لا توجد أصناف بعد — أضف أول منتج من الأعلى.</p>
+</div>
+
+<script type="module">
+import {
+  initStorage, addProduct, getAll, STORAGE_KEYS,
+  getProductStock, addInventoryTransaction, getLowStockAlerts,
+  addStockStatusUpdate, getLatestStockStatus,
+  setProductOffer, clearProductOffer, getEffectivePrice,
+  deleteRecord, updateRecord, downloadBackup, importBackup,
+} from './erp-data-layer.js';
+
+initStorage();
+
+function refresh() {
+  renderAlerts();
+  renderProductsTable();
+  renderProductSelect();
+}
+
+function renderAlerts() {
+  const alerts = getLowStockAlerts();
+  const box = document.getElementById('alertBox');
+  if (alerts.length === 0) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div class="alert">
+      <strong>⚠ تنبيه نواقص مخزون (${alerts.length} صنف وصل لحد الطلب أو أقل):</strong>
+      <ul>${alerts.map(a => `<li>${a.name} — الرصيد الحالي: ${a.currentStock} (حد الطلب: ${a.reorderLevel})</li>`).join('')}</ul>
+    </div>`;
+}
+
+let editingProductId = null;
+
+function renderProductsTable() {
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const tbody = document.getElementById('productsTable');
+  document.getElementById('emptyState').style.display = products.length ? 'none' : 'block';
+  tbody.innerHTML = products.map(p => {
+    const stock = getProductStock(p.id);
+    const low = stock <= p.reorderLevel;
+    const status = getLatestStockStatus(p.id);
+    const atpDisplay = status && status.atp !== null ? status.atp : '-';
+    const incomingDisplay = status && status.incoming !== null ? status.incoming : '-';
+    const lastUpdate = status ? new Date(status.date).toLocaleDateString('ar-EG') : '-';
+
+    if (editingProductId === p.id) {
+      return `
+      <tr>
+        <td><input type="text" class="e-name" value="${p.name}"></td>
+        <td><input type="text" class="e-sku" value="${p.sku || ''}"></td>
+        <td><input type="text" class="e-category" value="${p.category || ''}"></td>
+        <td><input type="text" class="e-unit" value="${p.unit}"></td>
+        <td class="${low ? 'low' : ''}">${stock}</td>
+        <td><input type="number" class="e-reorder" value="${p.reorderLevel}" style="width:70px;"></td>
+        <td>
+          <input type="number" class="e-price" value="${p.basePrice}" style="width:75px;" placeholder="السعر الأساسي" title="السعر الأساسي"><br>
+          <input type="number" class="e-offer" value="${p.offerPrice ?? ''}" style="width:75px; margin-top:4px;" placeholder="سعر العرض (سيبه فاضي = بدون عرض)" title="سعر العرض">
+        </td>
+        <td>${atpDisplay}</td>
+        <td>${incomingDisplay}</td>
+        <td class="muted">${lastUpdate}</td>
+        <td class="row-actions">
+          <button data-save-edit="${p.id}">حفظ</button>
+          <button class="secondary" data-cancel-edit="1">إلغاء</button>
+        </td>
+      </tr>`;
+    }
+
+    const hasOffer = p.offerPrice !== null && p.offerPrice !== undefined;
+    const priceCell = hasOffer
+      ? `${p.offerPrice.toLocaleString()} <span class="offer-badge">عرض</span> <span class="muted">(${p.basePrice.toLocaleString()})</span>`
+      : `${p.basePrice.toLocaleString()}`;
+    return `
+      <tr>
+        <td>${p.name}</td>
+        <td>${p.sku || '-'}</td>
+        <td>${p.category || '-'}</td>
+        <td>${p.unit}</td>
+        <td class="${low ? 'low' : ''}">${stock}</td>
+        <td>${p.reorderLevel}</td>
+        <td>${priceCell}</td>
+        <td>${atpDisplay}</td>
+        <td>${incomingDisplay}</td>
+        <td class="muted">${lastUpdate}</td>
+        <td class="row-actions">
+          <button class="secondary" data-edit="${p.id}">تعديل</button>
+          <button class="danger" data-del="${p.id}">حذف</button>
+        </td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-edit]').forEach(btn => {
+    btn.addEventListener('click', () => { editingProductId = btn.dataset.edit; renderProductsTable(); });
+  });
+  tbody.querySelectorAll('[data-cancel-edit]').forEach(btn => {
+    btn.addEventListener('click', () => { editingProductId = null; renderProductsTable(); });
+  });
+  tbody.querySelectorAll('[data-save-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('tr');
+      const offerVal = row.querySelector('.e-offer').value;
+      updateRecord(STORAGE_KEYS.PRODUCTS, btn.dataset.saveEdit, {
+        name: row.querySelector('.e-name').value.trim(),
+        sku: row.querySelector('.e-sku').value.trim(),
+        category: row.querySelector('.e-category').value.trim(),
+        unit: row.querySelector('.e-unit').value.trim() || 'قطعة',
+        reorderLevel: Number(row.querySelector('.e-reorder').value) || 0,
+        basePrice: Number(row.querySelector('.e-price').value) || 0,
+        offerPrice: offerVal === '' ? null : Number(offerVal),
+      });
+      editingProductId = null;
+      refresh();
+    });
+  });
+  tbody.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (confirm('تأكيد حذف المنتج؟ (سجل الحركات القديمة هيفضل موجود)')) {
+        deleteRecord(STORAGE_KEYS.PRODUCTS, btn.dataset.del);
+        refresh();
+      }
+    });
+  });
+}
+
+function renderProductSelect() {
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const options = products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  document.getElementById('t_product').innerHTML = options;
+  document.getElementById('st_product').innerHTML = options;
+  document.getElementById('of_product').innerHTML = options;
+}
+
+document.getElementById('productForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  addProduct({
+    name: document.getElementById('p_name').value.trim(),
+    sku: document.getElementById('p_sku').value.trim(),
+    unit: document.getElementById('p_unit').value.trim() || 'قطعة',
+    category: document.getElementById('p_category').value.trim(),
+    description: document.getElementById('p_description').value.trim(),
+    reorderLevel: Number(document.getElementById('p_reorder').value) || 0,
+    basePrice: Number(document.getElementById('p_price').value) || 0,
+    openingStock: Number(document.getElementById('p_opening').value) || 0,
+  });
+  e.target.reset();
+  document.getElementById('p_unit').value = 'قطعة';
+  refresh();
+});
+
+document.getElementById('txForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const productId = document.getElementById('t_product').value;
+  if (!productId) { alert('أضف منتج أولاً'); return; }
+  addInventoryTransaction({
+    productId,
+    type: document.getElementById('t_type').value,
+    qty: Number(document.getElementById('t_qty').value),
+    refType: 'manual',
+    refId: document.getElementById('t_ref').value.trim() || null,
+  });
+  e.target.reset();
+  refresh();
+});
+
+document.getElementById('offerForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const productId = document.getElementById('of_product').value;
+  const priceVal = document.getElementById('of_price').value;
+  if (!productId) { alert('أضف منتج أولاً'); return; }
+  if (priceVal === '') { alert('أدخل سعر العرض الجديد'); return; }
+  setProductOffer(productId, Number(priceVal));
+  e.target.reset();
+  refresh();
+});
+
+document.getElementById('btnClearOffer').addEventListener('click', () => {
+  const productId = document.getElementById('of_product').value;
+  if (!productId) { alert('اختار منتج أولاً'); return; }
+  clearProductOffer(productId);
+  document.getElementById('of_price').value = '';
+  refresh();
+});
+
+document.getElementById('statusForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const productId = document.getElementById('st_product').value;
+  if (!productId) { alert('أضف منتج أولاً'); return; }
+  const atpVal = document.getElementById('st_atp').value;
+  const incomingVal = document.getElementById('st_incoming').value;
+  if (atpVal === '' && incomingVal === '') { alert('أدخل قيمة واحدة على الأقل (ATP أو الكمية الجاية)'); return; }
+  addStockStatusUpdate({
+    productId,
+    atp: atpVal === '' ? null : Number(atpVal),
+    incoming: incomingVal === '' ? null : Number(incomingVal),
+    note: document.getElementById('st_note').value.trim(),
+  });
+  e.target.reset();
+  refresh();
+});
+
+document.getElementById('btnExport').addEventListener('click', downloadBackup);
+
+document.getElementById('btnImport').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      importBackup(JSON.parse(reader.result));
+      refresh();
+      alert('تم استعادة النسخة الاحتياطية بنجاح');
+    } catch {
+      alert('ملف غير صالح');
+    }
+  };
+  reader.readAsText(file);
+});
+
+refresh();
+</script>
+</body>
+</html>

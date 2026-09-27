@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>الرئيسية</title>
+<style>
+  :root {
+    --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
+    --primary: #1F5065; --primary-dark: #123244; --danger: #A6402F; --ok: #1F7A4D;
+    --warn-bg: #F5EBD6; --warn-border: #B8862E; --border: #DCE1DF;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Dubai', 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; }
+  h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
+  nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
+  nav a.active { background: var(--primary); color: #fff; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
+  .alert { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .alert.danger-alert { background: #F2E1DC; border-color: var(--danger); }
+  .alert strong { color: #7A5A19; }
+  .alert.danger-alert strong { color: var(--danger); }
+  .alert ul { margin: 6px 0 0; padding-inline-start: 18px; font-size: 13px; }
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .kpi { background: var(--card); border-radius: 10px; padding: 12px 16px; flex: 1; min-width: 140px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .kpi .label { font-size: 12px; color: var(--muted); }
+  .kpi .value { font-size: 20px; font-weight: 700; color: var(--primary-dark); }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
+  .two-col { display: flex; gap: 16px; flex-wrap: wrap; }
+  .two-col .card { flex: 1; min-width: 260px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .all-clear { color: var(--ok); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <a href="dashboard.html" class="active">🏠 الرئيسية</a>
+  <a href="inventory.html">📦 المخزون</a>
+  <a href="customers.html">💰 العملاء</a>
+  <a href="checks.html">🧾 الشيكات</a>
+  <a href="targets.html">🎯 الأهداف</a>
+</nav>
+
+<h1>نظرة عامة</h1>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">عدد العملاء</div><div class="value" id="kpiCustomers">0</div></div>
+  <div class="kpi"><div class="label">إجمالي المديونيات</div><div class="value" id="kpiDebt">0</div></div>
+  <div class="kpi"><div class="label">درجة تارجت الشهر</div><div class="value" id="kpiScore">-</div></div>
+</div>
+
+<div id="alertsBox"></div>
+
+<div class="card">
+  <div class="toolbar" style="display:flex; justify-content:space-between; align-items:center;">
+    <h2 style="margin:0;">📊 تقارير الشهر</h2>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input type="month" id="reportPeriod" style="max-width:160px;">
+      <button class="secondary" id="btnMonthlyReport">⬇ تقرير الشهر (Excel)</button>
+    </div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <h2 id="topCustomersTitle">🏆 أكبر 5 عملاء</h2>
+    <table><thead><tr><th>العميل</th><th>الإجمالي</th></tr></thead><tbody id="topCustomers"></tbody></table>
+  </div>
+  <div class="card">
+    <h2 id="topProductsTitle">📦 أكتر 5 منتجات مبيعاً</h2>
+    <table><thead><tr><th>المنتج</th><th>الكمية</th><th>القيمة</th></tr></thead><tbody id="topProducts"></tbody></table>
+  </div>
+</div>
+
+<script type="module">
+import {
+  initStorage, getAll, STORAGE_KEYS,
+  getCustomerBalance, getOverCreditLimitCustomers,
+  getLowStockAlerts, getChecksDueSoon, getOrdersNeedingRenewal,
+  getTopCustomers, getTopProducts, getMonthlyScorecard, getDaysSinceLastBackup,
+  getActiveOrders, getAgingReport,
+} from './erp-data-layer.js';
+
+initStorage();
+
+function currentPeriod() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function renderKpis() {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  document.getElementById('kpiCustomers').textContent = customers.length;
+  const totalDebt = customers.reduce((sum, c) => sum + Math.max(getCustomerBalance(c.id), 0), 0);
+  document.getElementById('kpiDebt').textContent = totalDebt.toLocaleString();
+
+  const scorecard = getMonthlyScorecard(currentPeriod());
+  document.getElementById('kpiScore').textContent = scorecard.kpis.length ? `${scorecard.overallScore}%` : '-';
+}
+
+function renderAlerts() {
+  const box = document.getElementById('alertsBox');
+  const sections = [];
+
+  const overCredit = getOverCreditLimitCustomers();
+  if (overCredit.length) {
+    sections.push(`<div class="alert danger-alert"><strong>🚫 عملاء تعدّوا حد الائتمان (${overCredit.length}):</strong>
+      <ul>${overCredit.map(c => `<li>${c.name} — ${c.balance.toLocaleString()} / حد ${c.creditLimit.toLocaleString()}</li>`).join('')}</ul></div>`);
+  }
+
+  const lowStock = getLowStockAlerts();
+  if (lowStock.length) {
+    sections.push(`<div class="alert"><strong>⚠ نواقص مخزون (${lowStock.length}):</strong>
+      <ul>${lowStock.map(p => `<li>${p.name} — الرصيد: ${p.currentStock} (حد الطلب: ${p.reorderLevel})</li>`).join('')}</ul></div>`);
+  }
+
+  const checksDue = getChecksDueSoon(7);
+  if (checksDue.length) {
+    const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+    sections.push(`<div class="alert"><strong>🧾 شيكات مستحقة خلال 7 أيام (${checksDue.length}):</strong>
+      <ul>${checksDue.map(c => `<li>${customers.find(cc => cc.id === c.customerId)?.name || '?'} — ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul></div>`);
+  }
+
+  const needingRenewal = getOrdersNeedingRenewal();
+  if (needingRenewal.length) {
+    const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+    sections.push(`<div class="alert"><strong>⏳ طلبيات محتاجة تجديد حجز على الساب (${needingRenewal.length}):</strong>
+      <ul>${needingRenewal.map(o => `<li>${customers.find(c => c.id === o.customerId)?.name || '?'} — ${o.daysLeft <= 0 ? 'فات المعاد!' : `باقي ${o.daysLeft} يوم`}</li>`).join('')}</ul></div>`);
+  }
+
+  const daysSinceBackup = getDaysSinceLastBackup();
+  if (daysSinceBackup === null || daysSinceBackup >= 7) {
+    const msg = daysSinceBackup === null ? 'لسه ماعملتش أي نسخة احتياطية خالص' : `آخر نسخة احتياطية من ${daysSinceBackup} يوم`;
+    sections.push(`<div class="alert"><strong>💾 وقت النسخة الاحتياطية:</strong> ${msg} — روح لأي صفحة واضغط "⬇ نسخة احتياطية".</div>`);
+  }
+
+  box.innerHTML = sections.length ? sections.join('') : '<p class="all-clear">✅ مفيش تنبيهات دلوقتي — كل حاجة تمام.</p>';
+}
+
+function renderTopLists() {
+  const period = document.getElementById('reportPeriod').value || currentPeriod();
+  document.getElementById('reportPeriod').value = period;
+  document.getElementById('topCustomersTitle').textContent = `🏆 أكبر 5 عملاء — ${period}`;
+  document.getElementById('topProductsTitle').textContent = `📦 أكتر 5 منتجات مبيعاً — ${period}`;
+
+  const topCustomers = getTopCustomers(period, 5);
+  document.getElementById('topCustomers').innerHTML = topCustomers.length
+    ? topCustomers.map(r => `<tr><td>${r.customer.name}</td><td>${r.total.toLocaleString()}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="muted">لا توجد مبيعات في هذا الشهر</td></tr>';
+
+  const topProducts = getTopProducts(period, 5);
+  document.getElementById('topProducts').innerHTML = topProducts.length
+    ? topProducts.map(r => `<tr><td>${r.product.name}</td><td>${r.qty}</td><td>${r.value.toLocaleString()}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="muted">لا توجد مبيعات في هذا الشهر</td></tr>';
+}
+
+document.getElementById('reportPeriod').addEventListener('change', renderTopLists);
+
+function csvCell(v) { return `"${String(v).replace(/"/g, '""')}"`; }
+function csvRow(cells) { return cells.map(csvCell).join(','); }
+
+function exportMonthlyReport() {
+  const period = document.getElementById('reportPeriod').value || currentPeriod();
+  const orders = getActiveOrders().filter(o => o.date.startsWith(period));
+  const totalSales = orders.reduce((s, o) => s + o.total, 0);
+  const receipts = getAll(STORAGE_KEYS.RECEIPTS).filter(r => !r.voided && r.date.startsWith(period));
+  const totalCollected = receipts.reduce((s, r) => s + r.amount, 0);
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const totalDebtNow = customers.reduce((s, c) => s + Math.max(getCustomerBalance(c.id), 0), 0);
+
+  const scorecard = getMonthlyScorecard(period);
+  const topCustomers = getTopCustomers(period, 10);
+  const topProducts = getTopProducts(period, 10);
+  const aging = getAgingReport();
+
+  const rows = [];
+  rows.push(['تقرير الشهر', period]);
+  rows.push([]);
+
+  rows.push(['ملخص المبيعات']);
+  rows.push(['إجمالي المبيعات (فواتير الشهر)', totalSales]);
+  rows.push(['إجمالي التحصيل (خلال الشهر)', totalCollected]);
+  rows.push(['إجمالي المديونية القائمة حالياً (كل العملاء)', totalDebtNow]);
+  rows.push([]);
+
+  rows.push(['تارجت الشهر (KPIs)', '', '', '', '', '']);
+  rows.push(['الـ KPI', 'النوع', 'الهدف', 'المحقق', 'الوزن %', 'نسبة الإنجاز %', 'الدرجة المرجّحة %']);
+  scorecard.kpis.forEach(k => rows.push([k.name, k.metricType, k.targetValue, k.achieved, k.weight, k.percentage, k.weightedScore]));
+  rows.push(['الدرجة الكلية للشهر', '', '', '', '', '', scorecard.overallScore]);
+  rows.push([]);
+
+  rows.push(['أكبر العملاء بيعاً']);
+  rows.push(['العميل', 'الإجمالي']);
+  topCustomers.forEach(r => rows.push([r.customer.name, r.total]));
+  rows.push([]);
+
+  rows.push(['أكتر المنتجات مبيعاً']);
+  rows.push(['المنتج', 'الكمية', 'القيمة']);
+  topProducts.forEach(r => rows.push([r.product.name, r.qty, r.value]));
+  rows.push([]);
+
+  rows.push(['تقادم الديون القائمة حالياً (كل العملاء)']);
+  rows.push(['العميل', '0-30 يوم', '31-60 يوم', '61-90 يوم', '90+ يوم']);
+  aging.forEach(({ customer, aging: a }) => rows.push([customer.name, a.buckets.d0_30, a.buckets.d31_60, a.buckets.d61_90, a.buckets.d90plus]));
+
+  const csv = '\uFEFF' + rows.map(csvRow).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `تقرير-شهري-${period}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('btnMonthlyReport').addEventListener('click', exportMonthlyReport);
+
+renderKpis();
+renderAlerts();
+renderTopLists();
+</script>
+</body>
+</html>

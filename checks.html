@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>إدارة الشيكات</title>
+<style>
+  :root {
+    --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
+    --primary: #1F5065; --primary-dark: #123244; --danger: #A6402F; --ok: #1F7A4D;
+    --warn-bg: #F5EBD6; --warn-border: #B8862E; --border: #DCE1DF;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Dubai', 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; }
+  h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
+  .alert { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .alert strong { color: #7A5A19; }
+  .alert ul { margin: 6px 0 0; padding-inline-start: 18px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; min-width: 760px; }
+  th, td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
+  .badge { padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .badge.holding { background: #F5EBD6; color: #7A5A19; }
+  .badge.delivered_office, .badge.deposited_bank { background: #E2ECEC; color: var(--primary-dark); }
+  .badge.cleared { background: #E1EFE3; color: var(--ok); }
+  .badge.bounced { background: #F2E1DC; color: var(--danger); }
+  .row-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .row-actions button { padding: 4px 8px; font-size: 12px; border: none; border-radius: 5px; cursor: pointer; }
+  .btn-office, .btn-bank { background: #E7EAE7; color: var(--text); }
+  .btn-clear { background: var(--ok); color: #fff; }
+  .btn-bounce { background: var(--danger); color: #fff; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  button.secondary { padding: 9px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-alt, #E7EAE7); color: var(--text); font-weight: 600; cursor: pointer; transition: background .15s ease; }
+  .muted { color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
+  nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
+  nav a.active { background: var(--primary); color: #fff; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="dashboard.html">🏠 الرئيسية</a>
+  <a href="inventory.html">📦 المخزون</a>
+  <a href="customers.html">💰 العملاء</a>
+  <a href="checks.html" class="active">🧾 الشيكات</a>
+  <a href="targets.html">🎯 الأهداف</a>
+</nav>
+
+
+<h1>🧾 إدارة الشيكات</h1>
+
+<div id="alertBox"></div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>كل الشيكات</h2>
+    <div>
+      <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
+      <input type="file" id="importFile" accept=".json" style="display:none">
+      <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>العميل</th><th>رقم الشيك</th><th>البنك</th><th>المبلغ</th>
+        <th>تاريخ الاستحقاق</th><th>الوجهة المقررة</th><th>موعد التسليم/الإيداع</th>
+        <th>الحالة</th><th>إجراءات</th>
+      </tr>
+    </thead>
+    <tbody id="checksTable"></tbody>
+  </table>
+  <p class="muted" id="emptyState" style="display:none">لا توجد شيكات مسجّلة بعد — سجّلها من موديول حسابات العملاء عند اختيار طريقة السداد "شيك".</p>
+</div>
+
+<script type="module">
+import {
+  initStorage, getAll, STORAGE_KEYS,
+  updateCheckDelivery, markCheckCleared, markCheckBounced, getChecksDueSoon,
+  downloadBackup, importBackup,
+} from './erp-data-layer.js';
+
+initStorage();
+
+const STATUS_LABELS = {
+  holding: 'في الحيازة',
+  delivered_office: 'تم التسليم للمكتب',
+  deposited_bank: 'تم الإيداع بالبنك',
+  cleared: 'تم التحصيل',
+  bounced: 'مرتد',
+};
+
+function customerName(id) {
+  return getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === id)?.name || '(محذوف)';
+}
+
+function refresh() {
+  renderAlerts();
+  renderTable();
+}
+
+function renderAlerts() {
+  const dueSoon = getChecksDueSoon(7);
+  const box = document.getElementById('alertBox');
+  if (dueSoon.length === 0) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div class="alert">
+      <strong>⚠ شيكات مستحقة خلال 7 أيام (${dueSoon.length}):</strong>
+      <ul>${dueSoon.map(c => `<li>${customerName(c.customerId)} — شيك رقم ${c.checkNumber || '-'} بمبلغ ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul>
+    </div>`;
+}
+
+function renderTable() {
+  const checks = getAll(STORAGE_KEYS.CHECKS).sort((a, b) => new Date(a.dueDate || 0) - new Date(b.dueDate || 0));
+  const tbody = document.getElementById('checksTable');
+  document.getElementById('emptyState').style.display = checks.length ? 'none' : 'block';
+
+  tbody.innerHTML = checks.map(c => {
+    let actions = '';
+    if (c.status === 'holding') {
+      actions = `
+        <button class="btn-office" data-office="${c.id}">تسليم للمكتب</button>
+        <button class="btn-bank" data-bank="${c.id}">إيداع بالبنك</button>`;
+    } else if (c.status === 'delivered_office' || c.status === 'deposited_bank') {
+      actions = `
+        <button class="btn-clear" data-clear="${c.id}">تحصيل الشيك</button>
+        <button class="btn-bounce" data-bounce="${c.id}">ارتجاع</button>`;
+    }
+    return `
+      <tr>
+        <td>${customerName(c.customerId)}</td>
+        <td>${c.checkNumber || '-'}</td>
+        <td>${c.bankName || '-'}</td>
+        <td>${c.amount.toLocaleString()}</td>
+        <td>${c.dueDate || '-'}</td>
+        <td>${c.deliveryType === 'bank' ? 'إيداع بالبنك' : 'تسليم بالمكتب'}</td>
+        <td>${c.deliveryDate || '-'}</td>
+        <td><span class="badge ${c.status}">${STATUS_LABELS[c.status] || c.status}</span></td>
+        <td class="row-actions">${actions}</td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-office]').forEach(btn => btn.addEventListener('click', () => {
+    updateCheckDelivery(btn.dataset.office, { status: 'delivered_office' });
+    refresh();
+  }));
+  tbody.querySelectorAll('[data-bank]').forEach(btn => btn.addEventListener('click', () => {
+    updateCheckDelivery(btn.dataset.bank, { status: 'deposited_bank' });
+    refresh();
+  }));
+  tbody.querySelectorAll('[data-clear]').forEach(btn => btn.addEventListener('click', () => {
+    if (confirm('تأكيد تحصيل الشيك فعلياً من البنك؟')) {
+      markCheckCleared(btn.dataset.clear);
+      refresh();
+    }
+  }));
+  tbody.querySelectorAll('[data-bounce]').forEach(btn => btn.addEventListener('click', () => {
+    if (confirm('تأكيد ارتجاع الشيك؟ (هترجع قيمته مديونية على العميل تاني)')) {
+      markCheckBounced(btn.dataset.bounce);
+      refresh();
+    }
+  }));
+}
+
+document.getElementById('btnExport').addEventListener('click', downloadBackup);
+document.getElementById('btnImport').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      importBackup(JSON.parse(reader.result));
+      refresh();
+      alert('تم استعادة النسخة الاحتياطية بنجاح');
+    } catch {
+      alert('ملف غير صالح');
+    }
+  };
+  reader.readAsText(file);
+});
+
+refresh();
+</script>
+</body>
+</html>
