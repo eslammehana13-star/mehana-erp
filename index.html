@@ -35,11 +35,13 @@
   .muted { color: var(--muted); font-size: 13px; }
   .all-clear { color: var(--ok); font-size: 13px; }
 </style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 </head>
 <body>
 
 <nav>
-  <a href="dashboard.html" class="active">🏠 الرئيسية</a>
+  <a href="index.html" class="active">🏠 الرئيسية</a>
   <a href="inventory.html">📦 المخزون</a>
   <a href="customers.html">💰 العملاء</a>
   <a href="checks.html">🧾 الشيكات</a>
@@ -79,6 +81,7 @@
 
 <script type="module">
 import {
+  esc, inPeriod, getReportOrders,
   initStorage, getAll, STORAGE_KEYS,
   getCustomerBalance, getOverCreditLimitCustomers,
   getLowStockAlerts, getChecksDueSoon, getOrdersNeedingRenewal,
@@ -110,27 +113,27 @@ function renderAlerts() {
   const overCredit = getOverCreditLimitCustomers();
   if (overCredit.length) {
     sections.push(`<div class="alert danger-alert"><strong>🚫 عملاء تعدّوا حد الائتمان (${overCredit.length}):</strong>
-      <ul>${overCredit.map(c => `<li>${c.name} — ${c.balance.toLocaleString()} / حد ${c.creditLimit.toLocaleString()}</li>`).join('')}</ul></div>`);
+      <ul>${overCredit.map(c => `<li>${esc(c.name)} — ${c.balance.toLocaleString()} / حد ${c.creditLimit.toLocaleString()}</li>`).join('')}</ul></div>`);
   }
 
   const lowStock = getLowStockAlerts();
   if (lowStock.length) {
     sections.push(`<div class="alert"><strong>⚠ نواقص مخزون (${lowStock.length}):</strong>
-      <ul>${lowStock.map(p => `<li>${p.name} — الرصيد: ${p.currentStock} (حد الطلب: ${p.reorderLevel})</li>`).join('')}</ul></div>`);
+      <ul>${lowStock.map(p => `<li>${esc(p.name)} — الرصيد: ${p.currentStock} (حد الطلب: ${p.reorderLevel})</li>`).join('')}</ul></div>`);
   }
 
   const checksDue = getChecksDueSoon(7);
   if (checksDue.length) {
     const customers = getAll(STORAGE_KEYS.CUSTOMERS);
     sections.push(`<div class="alert"><strong>🧾 شيكات مستحقة خلال 7 أيام (${checksDue.length}):</strong>
-      <ul>${checksDue.map(c => `<li>${customers.find(cc => cc.id === c.customerId)?.name || '?'} — ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul></div>`);
+      <ul>${checksDue.map(c => `<li>${esc(customers.find(cc => cc.id === c.customerId)?.name || '?')} — ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul></div>`);
   }
 
   const needingRenewal = getOrdersNeedingRenewal();
   if (needingRenewal.length) {
     const customers = getAll(STORAGE_KEYS.CUSTOMERS);
     sections.push(`<div class="alert"><strong>⏳ طلبيات محتاجة تجديد حجز على الساب (${needingRenewal.length}):</strong>
-      <ul>${needingRenewal.map(o => `<li>${customers.find(c => c.id === o.customerId)?.name || '?'} — ${o.daysLeft <= 0 ? 'فات المعاد!' : `باقي ${o.daysLeft} يوم`}</li>`).join('')}</ul></div>`);
+      <ul>${needingRenewal.map(o => `<li>${esc(customers.find(c => c.id === o.customerId)?.name || '?')} — ${o.daysLeft <= 0 ? 'فات المعاد!' : `باقي ${o.daysLeft} يوم`}</li>`).join('')}</ul></div>`);
   }
 
   const daysSinceBackup = getDaysSinceLastBackup();
@@ -150,12 +153,12 @@ function renderTopLists() {
 
   const topCustomers = getTopCustomers(period, 5);
   document.getElementById('topCustomers').innerHTML = topCustomers.length
-    ? topCustomers.map(r => `<tr><td>${r.customer.name}</td><td>${r.total.toLocaleString()}</td></tr>`).join('')
+    ? topCustomers.map(r => `<tr><td>${esc(r.customer.name)}</td><td>${r.total.toLocaleString()}</td></tr>`).join('')
     : '<tr><td colspan="2" class="muted">لا توجد مبيعات في هذا الشهر</td></tr>';
 
   const topProducts = getTopProducts(period, 5);
   document.getElementById('topProducts').innerHTML = topProducts.length
-    ? topProducts.map(r => `<tr><td>${r.product.name}</td><td>${r.qty}</td><td>${r.value.toLocaleString()}</td></tr>`).join('')
+    ? topProducts.map(r => `<tr><td>${esc(r.product.name)}</td><td>${r.qty}</td><td>${r.value.toLocaleString()}</td></tr>`).join('')
     : '<tr><td colspan="3" class="muted">لا توجد مبيعات في هذا الشهر</td></tr>';
 }
 
@@ -166,7 +169,7 @@ function csvRow(cells) { return cells.map(csvCell).join(','); }
 
 function exportMonthlyReport() {
   const period = document.getElementById('reportPeriod').value || currentPeriod();
-  const orders = getActiveOrders().filter(o => o.date.startsWith(period));
+  const orders = getReportOrders().filter(o => o.date.startsWith(period));
   const totalSales = orders.reduce((s, o) => s + o.total, 0);
   const receipts = getAll(STORAGE_KEYS.RECEIPTS).filter(r => !r.voided && r.date.startsWith(period));
   const totalCollected = receipts.reduce((s, r) => s + r.amount, 0);

@@ -58,9 +58,18 @@ function saveAll(key, data) {
     return true;
   } catch (e) {
     console.error(`فشل حفظ ${key}:`, e);
+    if (typeof alert === "function") alert("⚠ تعذّر حفظ البيانات (المساحة ممتلئة؟) — اعمل نسخة احتياطية فوراً");
     return false;
   }
 }
+
+function esc(v) { return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+/** هل التاريخ في الشهر (بتوقيت الجهاز مش UTC) */
+function inPeriod(dt, p) { const x = new Date(dt); if (isNaN(x)) return String(dt || '').startsWith(p); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`.startsWith(p); }
+/** مرتجعات الفواتير غير الملغاة فقط */
+function validReturns() { const v = new Set(getAll(STORAGE_KEYS.SALES_ORDERS).filter((o) => o.voided).map((o) => o.id)); return getAll(STORAGE_KEYS.RETURNS).filter((r) => !v.has(r.orderId)); }
+/** كل الفواتير غير الملغاة (شاملة المؤرشفة) — للتقارير والأهداف */
+function getReportOrders() { return getAll(STORAGE_KEYS.SALES_ORDERS).filter((o) => !o.voided); }
 
 function addRecord(key, record) {
   const all = getAll(key);
@@ -110,8 +119,8 @@ function initStorage() {
 // العملاء (Customers)
 // ------------------------------------------------------------
 
-function addCustomer({ name, category = 'عام', openingBalance = 0, creditLimit = 0, phone = '', discountRate = 0 }) {
-  return addRecord(STORAGE_KEYS.CUSTOMERS, { name, category, openingBalance, creditLimit, phone, discountRate });
+function addCustomer({ name, category = 'عام', openingBalance = 0, creditLimit = 0, phone = '', discountRate = 0, code = '' }) {
+  return addRecord(STORAGE_KEYS.CUSTOMERS, { name, code, category, openingBalance, creditLimit, phone, discountRate });
 }
 
 /**
@@ -131,7 +140,7 @@ function getCustomerBalance(customerId) {
     .filter((r) => r.customerId === customerId && !r.voided)
     .reduce((sum, r) => sum + r.amount, 0);
 
-  const totalReturns = getAll(STORAGE_KEYS.RETURNS)
+  const totalReturns = validReturns()
     .filter((r) => r.customerId === customerId)
     .reduce((sum, r) => sum + r.totalValue, 0);
 
@@ -154,18 +163,18 @@ function getCustomerStatement(customerId) {
   const sales = getAll(STORAGE_KEYS.SALES_ORDERS)
     .filter((o) => o.customerId === customerId && !o.voided)
     .map((o) => ({
-      date: o.createdAt,
+      date: o.date,
       type: `فاتورة بيع #${o.invoiceNo || '-'} (${o.cashDiscount ? 'نقدي' : 'آجل'})`,
       debit: o.total, credit: 0, ref: o.id,
     }));
 
-  const returns = getAll(STORAGE_KEYS.RETURNS)
+  const returns = validReturns()
     .filter((r) => r.customerId === customerId)
-    .map((r) => ({ date: r.createdAt, type: 'مرتجع', debit: 0, credit: r.totalValue, ref: r.id }));
+    .map((r) => ({ date: r.date, type: 'مرتجع', debit: 0, credit: r.totalValue, ref: r.id }));
 
   const receipts = getAll(STORAGE_KEYS.RECEIPTS)
     .filter((r) => r.customerId === customerId)
-    .map((r) => {
+    .flatMap((r) => {
       let type;
       if (r.voided) {
         type = 'تحصيل (ملغي - شيك مرتجع)';
@@ -176,13 +185,12 @@ function getCustomerStatement(customerId) {
       } else {
         type = 'تحصيل';
       }
-      return {
-        date: r.createdAt,
-        type,
-        debit: r.voided ? r.amount : 0, // الشيك المرتد يرجع كمديونية (مدين) في كشف الحساب
-        credit: r.voided ? 0 : r.amount,
-        ref: r.id,
-      };
+      const ck = checks.find((c) => c.receiptId === r.id);
+      if (r.voided) return [
+        { date: r.date, type: 'تحصيل (شيك)', debit: 0, credit: r.amount, ref: r.id },
+        { date: (ck && ck.bouncedDate) || r.date, type: 'ارتداد الشيك (رجوع المديونية)', debit: r.amount, credit: 0, ref: r.id + '_bounce' },
+      ];
+      return [{ date: r.date, type, debit: 0, credit: r.amount, ref: r.id }];
     });
 
   const movements = [...sales, ...returns, ...receipts].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -252,9 +260,10 @@ function getCustomerAging(customerId) {
 
   const credits = [
     ...getAll(STORAGE_KEYS.RECEIPTS).filter((r) => r.customerId === customerId && !r.voided).map((r) => ({ date: r.date, amount: r.amount })),
-    ...getAll(STORAGE_KEYS.RETURNS).filter((r) => r.customerId === customerId).map((r) => ({ date: r.date, amount: r.totalValue })),
+    ...validReturns().filter((r) => r.customerId === customerId).map((r) => ({ date: r.date, amount: r.totalValue })),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
+  if (customer.openingBalance < 0) credits.unshift({ date: customer.createdAt, amount: -customer.openingBalance });
   credits.forEach((r) => {
     let remainingCredit = r.amount;
     for (const debit of debits) {
@@ -294,14 +303,14 @@ function getAgingReport() {
 
 /** أكبر العملاء بيعاً بالقيمة، اختيارياً لفترة معيّنة (period بصيغة YYYY-MM) */
 function getTopCustomers(period = null, limit = 5) {
-  const orders = getActiveOrders().filter((o) => !period || o.date.startsWith(period));
+  const orders = getReportOrders().filter((o) => !period || inPeriod(o.date, period));
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
   const totals = {};
   orders.forEach((o) => { totals[o.customerId] = (totals[o.customerId] || 0) + o.total; });
 
   // اطرح قيمة المرتجعات المسجّلة في نفس الفترة (صافي مبيعات حقيقي)
-  getAll(STORAGE_KEYS.RETURNS)
-    .filter((r) => !period || r.date.startsWith(period))
+  validReturns()
+    .filter((r) => !period || inPeriod(r.date, period))
     .forEach((r) => { totals[r.customerId] = (totals[r.customerId] || 0) - r.totalValue; });
 
   return Object.entries(totals)
@@ -313,7 +322,7 @@ function getTopCustomers(period = null, limit = 5) {
 
 /** أكتر المنتجات مبيعاً (بالكمية والقيمة، صافي بعد خصم المرتجعات)، اختيارياً لفترة معيّنة */
 function getTopProducts(period = null, limit = 5) {
-  const orders = getActiveOrders().filter((o) => !period || o.date.startsWith(period));
+  const orders = getReportOrders().filter((o) => !period || inPeriod(o.date, period));
   const products = getAll(STORAGE_KEYS.PRODUCTS);
   const totals = {};
   orders.forEach((o) => o.items.forEach((it) => {
@@ -322,8 +331,8 @@ function getTopProducts(period = null, limit = 5) {
     totals[it.productId].value += it.qty * it.unitPrice;
   }));
 
-  getAll(STORAGE_KEYS.RETURNS)
-    .filter((r) => !period || r.date.startsWith(period))
+  validReturns()
+    .filter((r) => !period || inPeriod(r.date, period))
     .forEach((r) => r.items.forEach((it) => {
       if (!totals[it.productId]) totals[it.productId] = { qty: 0, value: 0 };
       totals[it.productId].qty -= it.qty;
@@ -384,7 +393,7 @@ function addInventoryTransaction({ productId, type, qty, refType, refId }) {
 function getLowStockAlerts() {
   return getAll(STORAGE_KEYS.PRODUCTS)
     .map((p) => ({ ...p, currentStock: getProductStock(p.id) }))
-    .filter((p) => p.currentStock <= p.reorderLevel);
+    .filter((p) => p.reorderLevel > 0 && p.currentStock <= p.reorderLevel);
 }
 
 /**
@@ -512,6 +521,7 @@ function getRenewalDaysLeft(order) {
 /** الطلبيات الشغالة (مش مؤرشفة ومش ملغاة) اللي محتاجة تجديد حجز خلال يوم أو فاتها المعاد */
 function getOrdersNeedingRenewal() {
   return getActiveOrders()
+    .filter((o) => !['delivered', 'release'].includes(o.status))
     .map((o) => ({ ...o, daysLeft: getRenewalDaysLeft(o) }))
     .filter((o) => o.daysLeft <= 1)
     .sort((a, b) => a.daysLeft - b.daysLeft);
@@ -588,7 +598,8 @@ function voidOrder(orderId) {
   if (!order) return null;
   const remainingTx = getAll(STORAGE_KEYS.INVENTORY_TX)
     .filter((t) => !(t.refType === 'sales_order' && t.refId === orderId));
-  saveAll(STORAGE_KEYS.INVENTORY_TX, remainingTx);
+  const retIds = new Set(getAll(STORAGE_KEYS.RETURNS).filter((r) => r.orderId === orderId).map((r) => r.id));
+  saveAll(STORAGE_KEYS.INVENTORY_TX, remainingTx.filter((t) => !(t.refType === 'sales_return' && retIds.has(t.refId))));
   logAudit(orderId, 'إلغاء الطلبية', `تم إلغاء الطلبية بالكامل (كانت بقيمة ${order.total.toLocaleString()})`);
   return updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { voided: true, voidedAt: new Date().toISOString() });
 }
@@ -607,9 +618,14 @@ function recordReturn({ orderId, items, date = new Date().toISOString() }) {
   const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
   if (!order) return null;
 
+  const factor = 1 - (order.discountRate || 0) / 100; // المرتجع بنفس صافي الفاتورة بعد الخصم
+  const prevReturns = getAll(STORAGE_KEYS.RETURNS).filter((r) => r.orderId === orderId);
   const itemsWithPrice = items.map((it) => {
+    const sold = order.items.filter((oi) => oi.productId === it.productId).reduce((s, oi) => s + oi.qty, 0);
+    const done = prevReturns.flatMap((r) => r.items).filter((ri) => ri.productId === it.productId).reduce((s, ri) => s + ri.qty, 0);
+    if (it.qty > sold - done) throw new Error(`الكمية المرتجعة (${it.qty}) أكبر من المتاح للإرجاع (${sold - done})`);
     const orig = order.items.find((oi) => oi.productId === it.productId);
-    return { productId: it.productId, qty: it.qty, unitPrice: orig ? orig.unitPrice : 0 };
+    return { productId: it.productId, qty: it.qty, unitPrice: (orig ? orig.unitPrice : 0) * factor };
   });
   const totalValue = itemsWithPrice.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
 
@@ -628,7 +644,7 @@ function recordReturn({ orderId, items, date = new Date().toISOString() }) {
 
 /** كل المرتجعات المسجّلة على طلبية معيّنة */
 function getOrderReturns(orderId) {
-  return getAll(STORAGE_KEYS.RETURNS).filter((r) => r.orderId === orderId);
+  return validReturns().filter((r) => r.orderId === orderId);
 }
 
 /**
@@ -676,7 +692,7 @@ function recordReceipt({ customerId, amount, method = 'cash', date = new Date().
 
 /** تحديث حالة تسليم الشيك (وصل للمكتب / اتودع في البنك) */
 function updateCheckDelivery(checkId, { status, deliveryDate }) {
-  return updateRecord(STORAGE_KEYS.CHECKS, checkId, { status, deliveryDate: deliveryDate || new Date().toISOString() });
+  return updateRecord(STORAGE_KEYS.CHECKS, checkId, { status, actualDeliveryDate: new Date().toISOString(), ...(deliveryDate ? { deliveryDate } : {}) });
 }
 
 /** تحصيل الشيك فعلياً من البنك */
@@ -708,6 +724,67 @@ function getChecksDueSoon(days = 7) {
 }
 
 // ------------------------------------------------------------
+// استيراد جماعي (لصق من إكسل): تجار ومنتجات
+// ------------------------------------------------------------
+function parseRows(text) {
+  const rows = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    const sep = l.includes('\t') ? '\t' : (l.includes(';') ? ';' : ',');
+    return l.split(sep).map((c) => c.trim().replace(/^"|"$/g, ''));
+  });
+  if (rows.length && /^(الاسم|اسم|name)/i.test(rows[0][0])) rows.shift(); // تخطي صف العناوين
+  return rows;
+}
+const toNum = (v) => { const n = Number(String(v ?? '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[,٬\s%]/g, '')); return Number.isFinite(n) ? n : 0; };
+
+/** الأعمدة: الاسم | الكود | التصنيف | الهاتف | الرصيد الافتتاحي | حد الائتمان | خصم الكاش % — الاسم بس هو الإجباري.
+ *  المكرر (بالكود أو الاسم) بيتخطى، ولو التاجر موجود من غير كود والكود جه دلوقتي بيتضاف له. */
+function importCustomers(text) {
+  const all = getAll(STORAGE_KEYS.CUSTOMERS);
+  const byName = new Map(all.map((c) => [String(c.name).trim().toLowerCase(), c]));
+  const byCode = new Map(all.filter((c) => c.code).map((c) => [String(c.code).trim().toLowerCase(), c]));
+  const res = { added: 0, skipped: [], coded: 0 };
+  parseRows(text).forEach(([name, code, category, phone, opening, limit, discount]) => {
+    if (!name) return;
+    const found = (code && byCode.get(code.toLowerCase())) || byName.get(name.toLowerCase());
+    if (found) {
+      if (code && !found.code) { updateRecord(STORAGE_KEYS.CUSTOMERS, found.id, { code }); res.coded++; }
+      else res.skipped.push(name);
+      return;
+    }
+    const c = addCustomer({ name, code: code || '', category: category || 'عام', phone: phone || '', openingBalance: toNum(opening), creditLimit: toNum(limit), discountRate: toNum(discount) });
+    byName.set(name.toLowerCase(), c); if (code) byCode.set(code.toLowerCase(), c);
+    res.added++;
+  });
+  return res;
+}
+
+/** الأعمدة: الاسم | الكود | التصنيف | السعر | الرصيد الافتتاحي | حد الطلب | الوحدة — المكرر (بالكود، أو بالاسم لو مفيش كود) بيتخطى */
+function importProducts(text, { update = false } = {}) {
+  const map = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [(p.sku || p.name).trim().toLowerCase(), p]));
+  const touched = new Set();
+  const res = { added: 0, skipped: [], updated: 0, priceChanges: [], withOffer: [], missing: [] };
+  parseRows(text).forEach(([name, sku, category, price, opening, reorder, unit, description]) => {
+    if (!name) return;
+    const k = (sku || name).trim().toLowerCase();
+    const old = map.get(k);
+    if (old) {
+      if (!update) { res.skipped.push(sku || name); return; }
+      touched.add(k);
+      const newPrice = toNum(price);
+      if (newPrice !== old.basePrice) res.priceChanges.push({ sku: old.sku || old.name, from: old.basePrice, to: newPrice });
+      updateRecord(STORAGE_KEYS.PRODUCTS, old.id, { name, category: category || old.category, basePrice: newPrice, description: description || old.description });
+      if (old.offerPrice !== null && old.offerPrice !== undefined) res.withOffer.push(old.sku || old.name);
+      res.updated++;
+      return;
+    }
+    const p = addProduct({ name, sku: sku || '', category: category || '', basePrice: toNum(price), openingStock: toNum(opening), reorderLevel: toNum(reorder), unit: unit || 'قطعة', description: description || '' });
+    map.set(k, p); touched.add(k); res.added++;
+  });
+  if (update) res.missing = [...map.entries()].filter(([k]) => !touched.has(k)).map(([, p]) => p.sku || p.name);
+  return res;
+}
+
+// ------------------------------------------------------------
 // مندوبو المبيعات (Sales Reps)
 // ------------------------------------------------------------
 
@@ -732,13 +809,10 @@ function getTargetProgress(targetId) {
   const target = getAll(STORAGE_KEYS.TARGETS).find((t) => t.id === targetId);
   if (!target) return null;
 
-  const achieved = getAll(STORAGE_KEYS.SALES_ORDERS)
-    .filter((o) => {
-      const matchesEntity = target.entityType === 'customer' ? o.customerId === target.entityId : o.repId === target.entityId;
-      const matchesPeriod = o.date.startsWith(target.period);
-      return matchesEntity && matchesPeriod;
-    })
-    .reduce((sum, o) => sum + o.total, 0);
+  const mine = getReportOrders().filter((o) => (target.entityType === 'customer' ? o.customerId : o.repId) === target.entityId);
+  const ids = new Set(mine.map((o) => o.id));
+  const returnsVal = validReturns().filter((r) => ids.has(r.orderId) && inPeriod(r.date, target.period)).reduce((s, r) => s + r.totalValue, 0);
+  const achieved = mine.filter((o) => inPeriod(o.date, target.period)).reduce((sum, o) => sum + o.total, 0) - returnsVal;
 
   const percentage = target.targetAmount > 0 ? (achieved / target.targetAmount) * 100 : 0;
   const commission = achieved * (target.commissionRate / 100);
@@ -768,10 +842,13 @@ function addKpi({ period, name, metricType, category = null, weight, targetValue
   return addRecord(STORAGE_KEYS.KPIS, { period, name, metricType, category, weight, targetValue, deductionPercent, onlyDelivered });
 }
 
+/** التصنيف ممكن يكون أكتر من وسم بينهم | مثلاً: MDA | بوتاجازات — الـ KPI بيطابق أي وسم منهم */
+function hasCat(cat, k) { return String(cat || '').split('|').map((x) => x.trim()).includes(String(k || '').trim()); }
+
 function computeKpiAchieved(kpi) {
-  const orders = getActiveOrders().filter((o) => o.date.startsWith(kpi.period));
+  const orders = getReportOrders().filter((o) => inPeriod(o.date, kpi.period));
   const products = getAll(STORAGE_KEYS.PRODUCTS);
-  const periodReturns = getAll(STORAGE_KEYS.RETURNS).filter((r) => r.date.startsWith(kpi.period));
+  const periodReturns = validReturns().filter((r) => inPeriod(r.date, kpi.period));
 
   if (kpi.metricType === 'active_dealers') {
     const delivered = orders.filter((o) => o.status === 'delivered');
@@ -791,7 +868,7 @@ function computeKpiAchieved(kpi) {
     filteredOrders.forEach((o) => {
       o.items.forEach((it) => {
         const product = products.find((p) => p.id === it.productId);
-        if (product && product.category === kpi.category) {
+        if (product && hasCat(product.category, kpi.category)) {
           sum += kpi.metricType === 'category_count' ? it.qty : it.qty * it.unitPrice;
         }
       });
@@ -799,7 +876,7 @@ function computeKpiAchieved(kpi) {
     periodReturns.forEach((r) => {
       r.items.forEach((it) => {
         const product = products.find((p) => p.id === it.productId);
-        if (product && product.category === kpi.category) {
+        if (product && hasCat(product.category, kpi.category)) {
           sum -= kpi.metricType === 'category_count' ? it.qty : it.qty * it.unitPrice;
         }
       });
@@ -860,11 +937,15 @@ function getDaysSinceLastBackup() {
 }
 
 function importBackup(jsonData) {
+  const known = jsonData && typeof jsonData === 'object' ? Object.keys(jsonData).filter((k) => Object.values(STORAGE_KEYS).includes(k)) : [];
+  if (known.length === 0) throw new Error('invalid backup');
+  if (typeof confirm === 'function' && !confirm('⚠ الاستعادة هتمسح كل البيانات الحالية وتحط النسخة مكانها. متأكد؟')) return false;
   Object.entries(jsonData).forEach(([key, value]) => {
     if (Object.values(STORAGE_KEYS).includes(key)) {
       saveAll(key, value);
     }
   });
+  return true;
 }
 
 // ------------------------------------------------------------
@@ -881,7 +962,7 @@ export {
   getOverCreditLimitCustomers, getCustomerAging, getAgingReport,
   getTopCustomers, getTopProducts,
   // مندوبين
-  addRep,
+  addRep, importCustomers, importProducts,
   // منتجات ومخزون
   addProduct, getProductStock, addInventoryTransaction, getLowStockAlerts,
   setProductOffer, clearProductOffer, getEffectivePrice,
@@ -895,7 +976,7 @@ export {
   updateOrderItems, voidOrder,
   recordReturn, getOrderReturns,
   getOrderAuditLog,
-  getActiveOrders, startNewMonth,
+  getActiveOrders, getReportOrders, startNewMonth, esc, inPeriod,
   // شيكات
   updateCheckDelivery, markCheckCleared, markCheckBounced, getChecksDueSoon,
   // أهداف

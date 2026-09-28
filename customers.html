@@ -62,10 +62,12 @@
   nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
   nav a.active { background: var(--primary); color: #fff; }
 </style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 </head>
 <body>
 <nav>
-  <a href="dashboard.html">🏠 الرئيسية</a>
+  <a href="index.html">🏠 الرئيسية</a>
   <a href="inventory.html">📦 المخزون</a>
   <a href="customers.html" class="active">💰 العملاء</a>
   <a href="checks.html">🧾 الشيكات</a>
@@ -87,6 +89,7 @@
   <h2>إضافة عميل جديد</h2>
   <form id="customerForm">
     <input type="text" id="c_name" placeholder="اسم العميل" required>
+    <input type="text" id="c_code" placeholder="كود العميل (الساب)">
     <input type="text" id="c_category" placeholder="التصنيف (موزع/تاجر تجزئة..)" value="عام">
     <input type="text" id="c_phone" placeholder="رقم الهاتف">
     <input type="number" id="c_opening" placeholder="الرصيد الافتتاحي" value="0">
@@ -94,6 +97,13 @@
     <input type="number" id="c_discount" placeholder="نسبة خصم الكاش %" value="0" min="0" max="100" step="0.5">
     <button type="submit">إضافة</button>
   </form>
+</div>
+
+<div class="card">
+  <h2>📥 استيراد تجار من إكسل</h2>
+  <p class="muted">انسخ من إكسل (سطر لكل تاجر) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← الهاتف ← الرصيد الافتتاحي ← حد الائتمان ← خصم الكاش %. الاسم بس هو الإجباري، والمكرر (بالكود أو الاسم) بيتخطى، ولو التاجر موجود من غير كود بيتضاف له الكود.</p>
+  <textarea id="bulkCustomers" rows="5" placeholder="مثال:&#10;مؤسسة النور&#9;C1001&#9;موزع&#9;01000000000&#9;25000&#9;100000&#9;2&#10;معرض الأمل&#9;C1002&#9;تجزئة" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnBulkCustomers" style="margin-top:8px;">📥 استيراد</button>
 </div>
 
 <div class="card">
@@ -166,10 +176,10 @@
       <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
     </div>
   </div>
-  <input type="text" id="customerSearch" placeholder="🔍 دور باسم عميل..." style="width:100%; margin-bottom:8px;">
+  <input type="text" id="customerSearch" placeholder="🔍 دور باسم أو كود عميل..." style="width:100%; margin-bottom:8px;">
   <table>
     <thead>
-      <tr><th>العميل</th><th>التصنيف</th><th>حد الائتمان</th><th>خصم الكاش %</th><th>الرصيد الحالي</th><th>إجراءات</th></tr>
+      <tr><th>العميل</th><th>الكود</th><th>التصنيف</th><th>حد الائتمان</th><th>خصم الكاش %</th><th>الرصيد الحالي</th><th>إجراءات</th></tr>
     </thead>
     <tbody id="customersTable"></tbody>
   </table>
@@ -190,7 +200,7 @@
     <h2>آخر الفواتير</h2>
     <button class="danger" id="btnNewMonth">📁 بدء شهر جديد</button>
   </div>
-  <input type="text" id="orderSearch" placeholder="🔍 دور باسم عميل أو رقم طلبية..." style="width:100%; margin-bottom:8px;">
+  <input type="text" id="orderSearch" placeholder="🔍 دور باسم عميل أو رقم طلبية (البحث يشمل الأرشيف)..." style="width:100%; margin-bottom:8px;">
   <table>
     <thead><tr><th>العميل</th><th>التاريخ</th><th>رقم الطلبية</th><th>العد التنازلي</th><th>الحالة</th><th>إيميل</th><th>الإجمالي</th><th>إجراءات</th></tr></thead>
     <tbody id="ordersTable"></tbody>
@@ -212,6 +222,7 @@
 
 <script type="module">
 import {
+  esc, inPeriod, getReportOrders, importCustomers,
   initStorage, addCustomer, getAll, STORAGE_KEYS,
   getCustomerBalance, getCustomerStatement, getCustomerCashCreditMix, recordReceipt,
   getOverCreditLimitCustomers, getAgingReport,
@@ -233,13 +244,24 @@ const STATUS_META = {
 function renderRepSelect() {
   const reps = getAll(STORAGE_KEYS.REPS);
   document.getElementById('s_rep').innerHTML =
-    '<option value="">بدون مندوب</option>' + reps.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+    '<option value="">بدون مندوب</option>' + reps.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
 }
 
 initStorage();
 let lineCount = 0;
 
 function refresh() {
+  // حفظ اللي المستخدم كان بيعمله قبل إعادة الرسم (اختيار العميل/المندوب، أرقام الطلبيات، الأصناف المفتوحة)
+  const sel = ['s_customer', 'r_customer', 's_rep'].map(id => [id, document.getElementById(id).value]);
+  const nums = Array.from(document.querySelectorAll('.ord-number-input')).map(i => [i.dataset.id, i.value]);
+  const open = Array.from(document.querySelectorAll('.items-detail-row')).filter(r => r.style.display === 'table-row').map(r => r.id);
+  refreshCore();
+  sel.forEach(([id, v]) => { const el = document.getElementById(id); if (v && Array.from(el.options).some(o => o.value === v)) el.value = v; });
+  nums.forEach(([id, v]) => { const i = document.querySelector(`.ord-number-input[data-id="${id}"]`); if (i && v !== i.defaultValue) i.value = v; });
+  open.forEach(id => { const r = document.getElementById(id); if (r) r.style.display = 'table-row'; });
+  updateSaleTotals();
+}
+function refreshCore() {
   renderKpis();
   renderCustomersTable();
   renderCustomerSelects();
@@ -261,7 +283,7 @@ function renderRenewalAlerts() {
       <ul>${needing.map(o => {
         const c = customers.find(cc => cc.id === o.customerId);
         const label = o.daysLeft <= 0 ? 'فات المعاد!' : `باقي ${o.daysLeft} يوم`;
-        return `<li>${c?.name || '?'} — رقم الطلبية: ${o.orderNumber || 'لسه ماتدخلش'} — ${label}</li>`;
+        return `<li>${esc(c?.name || '?')} — رقم الطلبية: ${esc(o.orderNumber || 'لسه ماتدخلش')} — ${label}</li>`;
       }).join('')}</ul>
     </div>`;
 }
@@ -273,7 +295,7 @@ function renderCreditAlerts() {
   box.innerHTML = `
     <div class="alert">
       <strong>🚫 عملاء تعدّوا حد الائتمان (${over.length}):</strong>
-      <ul>${over.map(c => `<li>${c.name} — الرصيد: ${c.balance.toLocaleString()} (الحد: ${c.creditLimit.toLocaleString()})</li>`).join('')}</ul>
+      <ul>${over.map(c => `<li>${esc(c.name)} — الرصيد: ${c.balance.toLocaleString()} (الحد: ${c.creditLimit.toLocaleString()})</li>`).join('')}</ul>
     </div>`;
 }
 
@@ -288,15 +310,16 @@ let editingCustomerId = null;
 
 function renderCustomersTable() {
   const query = (document.getElementById('customerSearch').value || '').trim().toLowerCase();
-  const customers = getAll(STORAGE_KEYS.CUSTOMERS).filter(c => !query || c.name.toLowerCase().includes(query));
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS).filter(c => !query || (c.name + " " + (c.code || "")).toLowerCase().includes(query));
   const tbody = document.getElementById('customersTable');
   document.getElementById('emptyState').style.display = customers.length ? 'none' : 'block';
   tbody.innerHTML = customers.map(c => {
     if (editingCustomerId === c.id) {
       return `
       <tr>
-        <td><input type="text" class="e-name" value="${c.name}"></td>
-        <td><input type="text" class="e-category" value="${c.category}"></td>
+        <td><input type="text" class="e-name" value="${esc(c.name)}"></td>
+        <td><input type="text" class="e-code" value="${esc(c.code || "")}" style="width:90px;"></td>
+        <td><input type="text" class="e-category" value="${esc(c.category)}"></td>
         <td><input type="number" class="e-limit" value="${c.creditLimit}" style="width:80px;"></td>
         <td><input type="number" class="e-discount" value="${c.discountRate || 0}" style="width:60px;"></td>
         <td class="muted">-</td>
@@ -310,8 +333,9 @@ function renderCustomersTable() {
     const cls = balance > 0 ? 'debt' : (balance < 0 ? 'credit' : '');
     return `
       <tr>
-        <td>${c.name}</td>
-        <td>${c.category}</td>
+        <td>${esc(c.name)}</td>
+        <td>${esc(c.code || "-")}</td>
+        <td>${esc(c.category)}</td>
         <td>${c.creditLimit.toLocaleString()}</td>
         <td>${c.discountRate || 0}%</td>
         <td class="${cls}">${balance.toLocaleString()}</td>
@@ -335,6 +359,7 @@ function renderCustomersTable() {
       const row = btn.closest('tr');
       updateRecord(STORAGE_KEYS.CUSTOMERS, btn.dataset.saveCust, {
         name: row.querySelector('.e-name').value.trim(),
+        code: row.querySelector('.e-code').value.trim(),
         category: row.querySelector('.e-category').value.trim(),
         creditLimit: Number(row.querySelector('.e-limit').value) || 0,
         discountRate: Number(row.querySelector('.e-discount').value) || 0,
@@ -351,6 +376,8 @@ function renderCustomersTable() {
   });
   tbody.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', () => {
+      const cid = btn.dataset.del;
+      if (getAll(STORAGE_KEYS.SALES_ORDERS).some(o => o.customerId === cid) || getAll(STORAGE_KEYS.RECEIPTS).some(r => r.customerId === cid)) { alert('مينفعش تحذف عميل عليه فواتير أو تحصيلات — سجلاته لازم تفضل في الحسابات.'); return; }
       if (confirm('تأكيد حذف العميل؟')) {
         deleteRecord(STORAGE_KEYS.CUSTOMERS, btn.dataset.del);
         refresh();
@@ -377,7 +404,7 @@ function renderAging() {
     const total = aging.buckets.d0_30 + aging.buckets.d31_60 + aging.buckets.d61_90 + aging.buckets.d90plus;
     return `
       <tr>
-        <td>${customer.name}</td>
+        <td>${esc(customer.name)}</td>
         <td>${aging.buckets.d0_30.toLocaleString()}</td>
         <td>${aging.buckets.d31_60.toLocaleString()}</td>
         <td class="${aging.buckets.d61_90 > 0 ? 'debt' : ''}">${aging.buckets.d61_90.toLocaleString()}</td>
@@ -389,7 +416,7 @@ function renderAging() {
 
 function renderCustomerSelects() {
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
-  const options = customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  const options = customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.code ? " (" + esc(c.code) + ")" : ""}</option>`).join('');
   document.getElementById('s_customer').innerHTML = options;
   document.getElementById('r_customer').innerHTML = options;
 }
@@ -401,7 +428,7 @@ function addLineItemRow(preset = null) {
   div.className = 'line-item';
   div.id = id;
   div.innerHTML = `
-    <select class="line-product">${products.map(p => `<option value="${p.id}" data-stock="${getProductStock(p.id)}" ${preset && preset.productId === p.id ? 'selected' : ''}>${p.name}</option>`).join('')}</select>
+    <select class="line-product">${products.map(p => `<option value="${p.id}" data-stock="${getProductStock(p.id)}" ${preset && preset.productId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     <input type="number" class="line-qty" placeholder="الكمية" min="1" value="${preset ? preset.qty : 1}" required>
     <input type="number" class="line-price" placeholder="السعر" min="0" required>
     <button type="button" class="secondary" data-remove="${id}">×</button>`;
@@ -496,6 +523,7 @@ document.getElementById('customerForm').addEventListener('submit', (e) => {
   e.preventDefault();
   addCustomer({
     name: document.getElementById('c_name').value.trim(),
+    code: document.getElementById('c_code').value.trim(),
     category: document.getElementById('c_category').value.trim() || 'عام',
     phone: document.getElementById('c_phone').value.trim(),
     openingBalance: Number(document.getElementById('c_opening').value) || 0,
@@ -513,11 +541,12 @@ document.getElementById('saleForm').addEventListener('submit', (e) => {
   const rows = document.querySelectorAll('#lineItems .line-item');
   if (rows.length === 0) { alert('أضف صنف واحد على الأقل'); return; }
 
-  const items = Array.from(rows).map(row => ({
+  const rawItems = Array.from(rows).map(row => ({
     productId: row.querySelector('.line-product').value,
     qty: Number(row.querySelector('.line-qty').value),
     unitPrice: Number(row.querySelector('.line-price').value),
   }));
+  const items = Object.values(rawItems.reduce((m, it) => { const k = it.productId + '|' + it.unitPrice; (m[k] ||= { ...it, qty: 0 }).qty += it.qty; return m; }, {}));
 
   const shortages = items
     .map(it => ({ ...it, available: getProductStock(it.productId), product: getAll(STORAGE_KEYS.PRODUCTS).find(p => p.id === it.productId) }))
@@ -601,14 +630,14 @@ document.getElementById('closeStatement').addEventListener('click', () => {
 function renderOrdersTable() {
   const query = (document.getElementById('orderSearch').value || '').trim().toLowerCase();
   const allCustomers = getAll(STORAGE_KEYS.CUSTOMERS);
-  let orders = getActiveOrders().sort((a, b) => new Date(b.date) - new Date(a.date));
+  let orders = (query ? getReportOrders() : getActiveOrders()).sort((a, b) => new Date(b.date) - new Date(a.date));
   if (query) {
     orders = orders.filter(o => {
       const cName = (allCustomers.find(c => c.id === o.customerId)?.name || '').toLowerCase();
       return cName.includes(query) || (o.orderNumber || '').toLowerCase().includes(query);
     });
   } else {
-    orders = orders.slice(0, 30);
+    orders = orders.slice(0, 60);
   }
   const tbody = document.getElementById('ordersTable');
   document.getElementById('ordersEmpty').style.display = orders.length ? 'none' : 'block';
@@ -620,8 +649,9 @@ function renderOrdersTable() {
   tbody.innerHTML = orders.map(o => {
     const customer = customers.find(c => c.id === o.customerId);
     const daysLeft = getRenewalDaysLeft(o);
-    const cdClass = daysLeft <= 0 ? 'expired' : (daysLeft === 1 ? 'warn' : 'ok');
-    const cdLabel = daysLeft <= 0 ? 'فات المعاد' : `${daysLeft} يوم`;
+    const done = ['delivered', 'release'].includes(o.status);
+    const cdClass = done ? 'ok' : daysLeft <= 0 ? 'expired' : (daysLeft === 1 ? 'warn' : 'ok');
+    const cdLabel = done ? 'مكتمل ✓' : daysLeft <= 0 ? 'فات المعاد' : `${daysLeft} يوم`;
     const unconfirmedCount = o.items.filter(it => (it.status || 'unconfirmed') === 'unconfirmed').length;
     const unconfirmedBadge = unconfirmedCount > 0 ? ` <span class="offer-badge">⚠ ${unconfirmedCount} غير مؤكد</span>` : '';
 
@@ -630,7 +660,7 @@ function renderOrdersTable() {
       const hasOffer = it.listPriceAtSale && it.listPriceAtSale > it.unitPrice;
       return `
         <tr data-product-id="${it.productId}">
-          <td>${p?.name || '?'}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
+          <td>${esc(p?.name || '?')}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
           <td><input type="number" class="edit-item-qty" value="${it.qty}" min="1" style="width:60px;"></td>
           <td><input type="number" class="edit-item-price" value="${it.unitPrice}" min="0" style="width:80px;"></td>
           <td><select class="status-select ${it.status || 'unconfirmed'}" data-item-status="${o.id}" data-item-idx="${idx}">${statusOptions(it.status || 'unconfirmed')}</select></td>
@@ -654,11 +684,11 @@ function renderOrdersTable() {
 
     return `
       <tr>
-        <td>#${o.invoiceNo || '-'} ${customer?.name || '(محذوف)'}<br><button class="toggle-items" data-toggle="${o.id}">الأصناف (${o.items.length}) ▾</button>${unconfirmedBadge}</td>
+        <td>#${o.invoiceNo || '-'} ${esc(customer?.name || '(محذوف)')}<br><button class="toggle-items" data-toggle="${o.id}">الأصناف (${o.items.length}) ▾</button>${unconfirmedBadge}</td>
         <td>${new Date(o.date).toLocaleDateString('ar-EG')}</td>
         <td>
           <div class="order-number-cell">
-            <input type="text" class="ord-number-input" data-id="${o.id}" value="${o.orderNumber || ''}" placeholder="رقم الطلبية">
+            <input type="text" class="ord-number-input" data-id="${o.id}" value="${esc(o.orderNumber || '')}" placeholder="رقم الطلبية">
             <button class="secondary" data-save-num="${o.id}">حفظ</button>
           </div>
         </td>
@@ -681,7 +711,7 @@ function renderOrdersTable() {
               <tbody id="itemsBody-${o.id}">${itemsRowsHtml}</tbody>
             </table>
             <div style="display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-              <select class="add-item-product" id="addItemSel-${o.id}">${products.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}</select>
+              <select class="add-item-product" id="addItemSel-${o.id}">${products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
               <input type="number" class="add-item-qty" id="addItemQty-${o.id}" value="1" min="1" style="width:70px;">
               <button class="secondary" data-add-item="${o.id}">+ إضافة صنف للطلبية</button>
               <label style="display:flex; align-items:center; gap:4px; font-size:13px;">
@@ -790,7 +820,7 @@ function renderOrdersTable() {
       .filter(it => it.qty > 0);
     if (items.length === 0) { alert('حدد كمية مرتجعة لصنف واحد على الأقل'); return; }
     if (confirm('تأكيد تسجيل المرتجع؟ الكمية هترجع للمخزون وتتخصم من مديونية العميل.')) {
-      recordReturn({ orderId, items });
+      try { recordReturn({ orderId, items }); } catch (err) { alert(err.message); return; }
       refresh();
     }
   }));
@@ -898,14 +928,21 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      importBackup(JSON.parse(reader.result));
-      refresh();
-      alert('تم استعادة النسخة الاحتياطية بنجاح');
+      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
     } catch {
       alert('ملف غير صالح');
     }
   };
   reader.readAsText(file);
+});
+
+document.getElementById('btnBulkCustomers').addEventListener('click', () => {
+  const box = document.getElementById('bulkCustomers');
+  if (!box.value.trim()) { alert('الصق البيانات الأول'); return; }
+  const r = importCustomers(box.value);
+  box.value = '';
+  refresh();
+  alert(`تم إضافة ${r.added} تاجر جديد ✅` + (r.coded ? `\nوإضافة كود لـ ${r.coded} تاجر موجود` : '') + (r.skipped.length ? `\nاتخطّيت ${r.skipped.length} مكرر: ${r.skipped.slice(0, 15).join('، ')}` : ''));
 });
 
 addLineItemRow();

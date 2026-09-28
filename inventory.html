@@ -43,10 +43,12 @@
   nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
   nav a.active { background: var(--primary); color: #fff; }
 </style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 </head>
 <body>
 <nav>
-  <a href="dashboard.html">🏠 الرئيسية</a>
+  <a href="index.html">🏠 الرئيسية</a>
   <a href="inventory.html" class="active">📦 المخزون</a>
   <a href="customers.html">💰 العملاء</a>
   <a href="checks.html">🧾 الشيكات</a>
@@ -57,6 +59,20 @@
 <h1>📦 إدارة المخزون</h1>
 
 <div id="alertBox"></div>
+
+<div class="card">
+  <h2>🔄 تحديث قائمة الأسعار الشهرية</h2>
+  <p class="muted">كل شهر: الصق ملف القايمة الجديدة (بنفس الأعمدة). المنتجات الموجودة بيتحدّث سعرها ووصفها ومعاها تصنيفها، والجديدة بتتضاف. الأرصدة والفواتير القديمة مبتتغيرش.</p>
+  <textarea id="updPrices" rows="5" placeholder="الصق هنا القايمة الجديدة كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnUpdPrices" style="margin-top:8px;">🔄 تحديث الأسعار</button>
+</div>
+
+<div class="card">
+  <h2>📥 استيراد منتجات من إكسل</h2>
+  <p class="muted">انسخ من إكسل (سطر لكل منتج) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← السعر ← الرصيد الافتتاحي ← حد الطلب ← الوحدة ← الوصف. الاسم بس هو الإجباري، والمكرر (بالكود) بيتخطى.</p>
+  <textarea id="bulkProducts" rows="5" placeholder="مثال:&#10;ثلاجة 400 لتر&#9;EG01&#9;MDA&#9;18500&#9;10&#9;3&#10;بوتجاز 5 شعلة&#9;EG02&#9;بوتجاز&#9;12000" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnBulkProducts" style="margin-top:8px;">📥 استيراد</button>
+</div>
 
 <div class="card">
   <div class="toolbar">
@@ -138,6 +154,7 @@
 
 <script type="module">
 import {
+  esc, inPeriod, getReportOrders, importProducts,
   initStorage, addProduct, getAll, STORAGE_KEYS,
   getProductStock, addInventoryTransaction, getLowStockAlerts,
   addStockStatusUpdate, getLatestStockStatus,
@@ -160,7 +177,7 @@ function renderAlerts() {
   box.innerHTML = `
     <div class="alert">
       <strong>⚠ تنبيه نواقص مخزون (${alerts.length} صنف وصل لحد الطلب أو أقل):</strong>
-      <ul>${alerts.map(a => `<li>${a.name} — الرصيد الحالي: ${a.currentStock} (حد الطلب: ${a.reorderLevel})</li>`).join('')}</ul>
+      <ul>${alerts.map(a => `<li>${esc(a.name)} — الرصيد الحالي: ${a.currentStock} (حد الطلب: ${a.reorderLevel})</li>`).join('')}</ul>
     </div>`;
 }
 
@@ -181,10 +198,10 @@ function renderProductsTable() {
     if (editingProductId === p.id) {
       return `
       <tr>
-        <td><input type="text" class="e-name" value="${p.name}"></td>
-        <td><input type="text" class="e-sku" value="${p.sku || ''}"></td>
-        <td><input type="text" class="e-category" value="${p.category || ''}"></td>
-        <td><input type="text" class="e-unit" value="${p.unit}"></td>
+        <td><input type="text" class="e-name" value="${esc(p.name)}"></td>
+        <td><input type="text" class="e-sku" value="${esc(p.sku || '')}"></td>
+        <td><input type="text" class="e-category" value="${esc(p.category || '')}"></td>
+        <td><input type="text" class="e-unit" value="${esc(p.unit)}"></td>
         <td class="${low ? 'low' : ''}">${stock}</td>
         <td><input type="number" class="e-reorder" value="${p.reorderLevel}" style="width:70px;"></td>
         <td>
@@ -207,10 +224,10 @@ function renderProductsTable() {
       : `${p.basePrice.toLocaleString()}`;
     return `
       <tr>
-        <td>${p.name}</td>
-        <td>${p.sku || '-'}</td>
-        <td>${p.category || '-'}</td>
-        <td>${p.unit}</td>
+        <td>${esc(p.name)}</td>
+        <td>${esc(p.sku || '-')}</td>
+        <td>${esc(p.category || '-')}</td>
+        <td>${esc(p.unit)}</td>
         <td class="${low ? 'low' : ''}">${stock}</td>
         <td>${p.reorderLevel}</td>
         <td>${priceCell}</td>
@@ -259,7 +276,7 @@ function renderProductsTable() {
 
 function renderProductSelect() {
   const products = getAll(STORAGE_KEYS.PRODUCTS);
-  const options = products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const options = products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   document.getElementById('t_product').innerHTML = options;
   document.getElementById('st_product').innerHTML = options;
   document.getElementById('of_product').innerHTML = options;
@@ -342,14 +359,33 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      importBackup(JSON.parse(reader.result));
-      refresh();
-      alert('تم استعادة النسخة الاحتياطية بنجاح');
+      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
     } catch {
       alert('ملف غير صالح');
     }
   };
   reader.readAsText(file);
+});
+
+document.getElementById('btnBulkProducts').addEventListener('click', () => {
+  const box = document.getElementById('bulkProducts');
+  if (!box.value.trim()) { alert('الصق البيانات الأول'); return; }
+  const r = importProducts(box.value);
+  box.value = '';
+  refresh();
+  alert(`تم إضافة ${r.added} منتج ✅` + (r.skipped.length ? `\nاتخطّيت ${r.skipped.length} مكرر: ${r.skipped.slice(0, 15).join('، ')}` : ''));
+});
+
+document.getElementById('btnUpdPrices').addEventListener('click', () => {
+  const box = document.getElementById('updPrices');
+  if (!box.value.trim()) { alert('الصق القايمة الأول'); return; }
+  const r = importProducts(box.value, { update: true });
+  box.value = '';
+  refresh();
+  let msg = `تم تحديث ${r.updated} منتج (${r.priceChanges.length} منهم اتغيّر سعره) وإضافة ${r.added} منتج جديد ✅`;
+  if (r.withOffer.length) msg += `\n⚠ ${r.withOffer.length} منتج عليه عرض شغال لسه سعر العرض زي ما هو — راجعه: ${r.withOffer.slice(0, 8).join('، ')}`;
+  if (r.missing.length) msg += `\nℹ ${r.missing.length} منتج عندك مش موجود في القايمة الجديدة (يمكن اتوقف): ${r.missing.slice(0, 8).join('، ')}`;
+  alert(msg);
 });
 
 refresh();

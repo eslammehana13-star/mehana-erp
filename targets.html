@@ -38,10 +38,12 @@
   nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
   nav a.active { background: var(--primary); color: #fff; }
 </style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 </head>
 <body>
 <nav>
-  <a href="dashboard.html">🏠 الرئيسية</a>
+  <a href="index.html">🏠 الرئيسية</a>
   <a href="inventory.html">📦 المخزون</a>
   <a href="customers.html">💰 العملاء</a>
   <a href="checks.html">🧾 الشيكات</a>
@@ -132,6 +134,7 @@
 
 <script type="module">
 import {
+  esc, inPeriod, getReportOrders,
   initStorage, addRep, getAll, STORAGE_KEYS,
   setTarget, getTargetProgress, deleteRecord,
   addKpi, getMonthlyScorecard,
@@ -160,21 +163,21 @@ function refresh() {
 }
 
 function renderCategoryList() {
-  const categories = [...new Set(getAll(STORAGE_KEYS.PRODUCTS).map(p => p.category).filter(Boolean))];
-  document.getElementById('categoryList').innerHTML = categories.map(c => `<option value="${c}">`).join('');
+  const categories = [...new Set(getAll(STORAGE_KEYS.PRODUCTS).flatMap(p => String(p.category || '').split('|').map(x => x.trim())).filter(Boolean))];
+  document.getElementById('categoryList').innerHTML = categories.map(c => `<option value="${esc(c)}">`).join('');
 }
 
 function renderEntitySelect() {
   const type = document.getElementById('tg_entityType').value;
   const list = type === 'rep' ? getAll(STORAGE_KEYS.REPS) : getAll(STORAGE_KEYS.CUSTOMERS);
-  document.getElementById('tg_entity').innerHTML = list.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+  document.getElementById('tg_entity').innerHTML = list.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
 }
 
 document.getElementById('tg_entityType').addEventListener('change', renderEntitySelect);
 
 function entityName(entityType, entityId) {
   const list = entityType === 'rep' ? getAll(STORAGE_KEYS.REPS) : getAll(STORAGE_KEYS.CUSTOMERS);
-  return list.find(e => e.id === entityId)?.name || '(محذوف)';
+  return esc(list.find(e => e.id === entityId)?.name || '(محذوف)');
 }
 
 function renderTargetsTable() {
@@ -248,7 +251,7 @@ function renderScorecard() {
     const fullClass = k.percentage >= 100 ? 'full' : '';
     return `
       <tr>
-        <td>${k.name}${k.category ? ` <span class="muted">(${k.category})</span>` : ''}</td>
+        <td>${esc(k.name)}${k.category ? ` <span class="muted">(${esc(k.category)})</span>` : ''}</td>
         <td>${KPI_TYPE_LABELS[k.metricType] || k.metricType}</td>
         <td>${k.targetValue.toLocaleString()}</td>
         <td>${k.achieved.toLocaleString()}</td>
@@ -311,9 +314,7 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      importBackup(JSON.parse(reader.result));
-      refresh();
-      alert('تم استعادة النسخة الاحتياطية بنجاح');
+      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
     } catch {
       alert('ملف غير صالح');
     }

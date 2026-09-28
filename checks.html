@@ -38,10 +38,12 @@
   nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
   nav a.active { background: var(--primary); color: #fff; }
 </style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
 </head>
 <body>
 <nav>
-  <a href="dashboard.html">🏠 الرئيسية</a>
+  <a href="index.html">🏠 الرئيسية</a>
   <a href="inventory.html">📦 المخزون</a>
   <a href="customers.html">💰 العملاء</a>
   <a href="checks.html" class="active">🧾 الشيكات</a>
@@ -77,6 +79,7 @@
 
 <script type="module">
 import {
+  esc, inPeriod, getReportOrders,
   initStorage, getAll, STORAGE_KEYS,
   updateCheckDelivery, markCheckCleared, markCheckBounced, getChecksDueSoon,
   downloadBackup, importBackup,
@@ -93,7 +96,7 @@ const STATUS_LABELS = {
 };
 
 function customerName(id) {
-  return getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === id)?.name || '(محذوف)';
+  return esc(getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === id)?.name || '(محذوف)');
 }
 
 function refresh() {
@@ -108,7 +111,7 @@ function renderAlerts() {
   box.innerHTML = `
     <div class="alert">
       <strong>⚠ شيكات مستحقة خلال 7 أيام (${dueSoon.length}):</strong>
-      <ul>${dueSoon.map(c => `<li>${customerName(c.customerId)} — شيك رقم ${c.checkNumber || '-'} بمبلغ ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul>
+      <ul>${dueSoon.map(c => `<li>${customerName(c.customerId)} — شيك رقم ${esc(c.checkNumber || '-')} بمبلغ ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul>
     </div>`;
 }
 
@@ -131,12 +134,12 @@ function renderTable() {
     return `
       <tr>
         <td>${customerName(c.customerId)}</td>
-        <td>${c.checkNumber || '-'}</td>
-        <td>${c.bankName || '-'}</td>
+        <td>${esc(c.checkNumber || '-')}</td>
+        <td>${esc(c.bankName || '-')}</td>
         <td>${c.amount.toLocaleString()}</td>
         <td>${c.dueDate || '-'}</td>
         <td>${c.deliveryType === 'bank' ? 'إيداع بالبنك' : 'تسليم بالمكتب'}</td>
-        <td>${c.deliveryDate || '-'}</td>
+        <td>${c.deliveryDate || '-'}${c.actualDeliveryDate ? ` <span class="muted">✔ فعلياً ${c.actualDeliveryDate.slice(0, 10)}</span>` : ''}</td>
         <td><span class="badge ${c.status}">${STATUS_LABELS[c.status] || c.status}</span></td>
         <td class="row-actions">${actions}</td>
       </tr>`;
@@ -172,9 +175,7 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      importBackup(JSON.parse(reader.result));
-      refresh();
-      alert('تم استعادة النسخة الاحتياطية بنجاح');
+      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
     } catch {
       alert('ملف غير صالح');
     }
