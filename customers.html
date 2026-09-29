@@ -95,14 +95,14 @@
     <input type="text" id="c_phone" placeholder="رقم الهاتف">
     <input type="number" id="c_opening" placeholder="الرصيد الافتتاحي" value="0">
     <input type="number" id="c_limit" placeholder="حد الائتمان" value="0" min="0">
-    <input type="number" id="c_discount" placeholder="نسبة خصم الكاش %" value="0" min="0" max="100" step="0.5">
+    <input type="number" id="c_discount" placeholder="نسبة الخصم % (بتتطبق تلقائياً على فواتيره)" value="0" min="0" max="100" step="0.5">
     <button type="submit">إضافة</button>
   </form>
 </div>
 
 <div class="card">
   <h2>📥 استيراد تجار من إكسل</h2>
-  <p class="muted">انسخ من إكسل (سطر لكل تاجر) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← الهاتف ← الرصيد الافتتاحي ← حد الائتمان ← خصم الكاش %. الاسم بس هو الإجباري، والمكرر (بالكود أو الاسم) بيتخطى، ولو التاجر موجود من غير كود بيتضاف له الكود.</p>
+  <p class="muted">انسخ من إكسل (سطر لكل تاجر) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← الهاتف ← الرصيد الافتتاحي ← حد الائتمان ← نسبة الخصم %. الاسم بس هو الإجباري، والمكرر (بالكود أو الاسم) بيتخطى، ولو التاجر موجود من غير كود بيتضاف له الكود.</p>
   <textarea id="bulkCustomers" rows="5" placeholder="مثال:&#10;مؤسسة النور&#9;C1001&#9;موزع&#9;01000000000&#9;25000&#9;100000&#9;2&#10;معرض الأمل&#9;C1002&#9;تجزئة" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
   <button type="button" id="btnBulkCustomers" style="margin-top:8px;">📥 استيراد</button>
 </div>
@@ -145,7 +145,7 @@
   <input type="text" id="customerSearch" placeholder="🔍 دور باسم أو كود عميل..." style="width:100%; margin-bottom:8px;">
   <table>
     <thead>
-      <tr><th>العميل</th><th>الكود</th><th>التصنيف</th><th>حد الائتمان</th><th>خصم الكاش %</th><th>الرصيد الحالي</th><th>إجراءات</th></tr>
+      <tr><th>العميل</th><th>الكود</th><th>التصنيف</th><th>حد الائتمان</th><th>نسبة الخصم %</th><th>الرصيد الحالي</th><th>إجراءات</th></tr>
     </thead>
     <tbody id="customersTable"></tbody>
   </table>
@@ -385,7 +385,7 @@ function showStatement(customerId) {
   const mix = getCustomerCashCreditMix(customerId);
   document.getElementById('statementTitle').textContent = `كشف حساب: ${customer?.name || ''}`;
   document.getElementById('statementMix').textContent =
-    `نقدي: ${mix.cashCount} فاتورة (${mix.cashValue.toLocaleString()}) — آجل: ${mix.creditCount} فاتورة (${mix.creditValue.toLocaleString()})`;
+    `بخصم: ${mix.cashCount} فاتورة (${mix.cashValue.toLocaleString()}) — بدون خصم: ${mix.creditCount} فاتورة (${mix.creditValue.toLocaleString()})`;
   document.getElementById('statementTable').innerHTML = lines.map(l => `
     <tr>
       <td>${new Date(l.date).toLocaleDateString('ar-EG')}</td>

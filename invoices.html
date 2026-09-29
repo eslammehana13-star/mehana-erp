@@ -96,15 +96,16 @@
     <div id="quickCustomerForm" style="display:none; gap:8px; width:100%; flex-wrap:wrap; background: var(--surface-alt, #E7EAE7); padding:10px; border-radius:8px;">
       <input type="text" id="qc_name" placeholder="اسم العميل" style="flex:1;">
       <input type="text" id="qc_category" placeholder="التصنيف" value="عام" style="flex:1;">
-      <input type="number" id="qc_discount" placeholder="خصم الكاش %" value="0" style="flex:1; min-width:90px;">
+      <input type="number" id="qc_discount" placeholder="نسبة الخصم %" value="0" style="flex:1; min-width:90px;">
       <button type="button" id="btnSaveQuickCustomer">حفظ العميل</button>
     </div>
     <select id="s_rep"><option value="">بدون مندوب</option></select>
     <div class="line-items" id="lineItems"></div>
     <div style="display:flex; gap:8px; width:100%; align-items:center;">
-      <label style="display:flex; align-items:center; gap:6px; font-size:14px;">
-        <input type="checkbox" id="s_cashDiscount" style="flex:none; width:auto;">
-        دفع كاش قبل الاستلام (يطبق خصم العميل)
+      <label style="display:flex; align-items:center; gap:6px; font-size:14px; width:100%;">
+        نسبة الخصم %
+        <input type="number" id="s_discount" min="0" max="100" step="0.5" style="max-width:150px;">
+        <span class="muted" id="s_discountHint"></span>
       </label>
     </div>
     <div id="saleTotals" class="muted" style="width:100%;"></div>
@@ -232,9 +233,15 @@ function updateSaleTotals() {
   }, 0);
 
   const customerId = document.getElementById('s_customer').value;
-  const cashChecked = document.getElementById('s_cashDiscount').checked;
   const customer = getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === customerId);
-  const discountRate = cashChecked ? (customer?.discountRate || 0) : 0;
+  const defaultRate = customer?.discountRate || 0;
+  const typed = document.getElementById('s_discount').value;
+  const discountRate = typed === '' ? defaultRate : Math.min(100, Math.max(0, Number(typed) || 0));
+  const discountInput = document.getElementById('s_discount');
+  discountInput.placeholder = String(defaultRate);
+  document.getElementById('s_discountHint').textContent = typed === ''
+    ? `(خصم العميل ${defaultRate}% — بيتطبق تلقائياً، اكتب رقم لو عايز تغيّره للفاتورة دي)`
+    : `(خصم العميل الأصلي ${defaultRate}%)`;
   const discountAmount = subtotal * (discountRate / 100);
   const total = subtotal - discountAmount;
 
@@ -267,7 +274,7 @@ document.getElementById('btnSaveQuickCustomer').addEventListener('click', () => 
 });
 
 document.getElementById('s_customer').addEventListener('change', updateSaleTotals);
-document.getElementById('s_cashDiscount').addEventListener('change', updateSaleTotals);
+document.getElementById('s_discount').addEventListener('input', updateSaleTotals);
 
 document.getElementById('addLine').addEventListener('click', () => addLineItemRow());
 
@@ -324,11 +331,11 @@ document.getElementById('saleForm').addEventListener('submit', (e) => {
   }
 
   const repId = document.getElementById('s_rep').value || null;
-  const cashDiscount = document.getElementById('s_cashDiscount').checked;
-  recordSale({ customerId, items, repId, cashDiscount });
+  const typedDiscount = document.getElementById('s_discount').value;
+  recordSale({ customerId, items, repId, discountRate: typedDiscount === '' ? null : Number(typedDiscount) });
   document.getElementById('lineItems').innerHTML = '';
   document.getElementById('s_customer').selectedIndex = 0;
-  document.getElementById('s_cashDiscount').checked = false;
+  document.getElementById('s_discount').value = '';
   refresh();
 });
 
@@ -402,7 +409,7 @@ function renderOrdersTable() {
         <td><span class="countdown ${cdClass}">${cdLabel}</span></td>
         <td><select class="status-select ${o.status || 'unconfirmed'}" data-order-status="${o.id}">${statusOptions(o.status || 'unconfirmed')}</select></td>
         <td style="text-align:center;"><input type="checkbox" data-email-sent="${o.id}" ${o.sentByEmail ? 'checked' : ''} title="تم الإرسال بالإيميل"></td>
-        <td>${o.total.toLocaleString()}</td>
+        <td>${o.total.toLocaleString()}${o.discountRate > 0 ? ` <span class="muted">(خصم ${o.discountRate}%)</span>` : ''}</td>
         <td class="row-actions">
           <button class="secondary" data-wa="${o.id}">نسخ واتساب</button>
           <button class="secondary" data-sap="${o.id}">نسخ للساب</button>
@@ -422,7 +429,8 @@ function renderOrdersTable() {
               <input type="number" class="add-item-qty" id="addItemQty-${o.id}" value="1" min="1" style="width:70px;">
               <button class="secondary" data-add-item="${o.id}">+ إضافة صنف للطلبية</button>
               <label style="display:flex; align-items:center; gap:4px; font-size:13px;">
-                <input type="checkbox" id="editCash-${o.id}" ${o.cashDiscount ? 'checked' : ''} style="width:auto;"> كاش قبل الاستلام
+                نسبة الخصم %
+                <input type="number" id="editDisc-${o.id}" value="${o.discountRate || 0}" min="0" max="100" step="0.5" style="width:70px;" title="سيبها فاضية عشان ترجع لخصم العميل الحالي">
               </label>
               <button data-save-items="${o.id}">💾 حفظ تعديلات الأصناف</button>
               <button class="secondary" data-record-return="${o.id}">↩ تسجيل مرتجع للكميات المحددة</button>
@@ -488,8 +496,8 @@ function renderOrdersTable() {
     const items = readCurrentItems(orderId);
     if (items.length === 0) { alert('لازم يفضل صنف واحد على الأقل — استخدم "إلغاء الطلبية" لو عايز تلغيها بالكامل'); return; }
     if (!confirmShortages(checkShortagesForEdit(orderId, items))) return;
-    const cashDiscount = document.getElementById(`editCash-${orderId}`).checked;
-    updateOrderItems(orderId, items, { cashDiscount });
+    const dv = document.getElementById(`editDisc-${orderId}`).value;
+    updateOrderItems(orderId, items, { discountRate: dv === '' ? null : Number(dv) });
     refresh();
   }));
   tbody.querySelectorAll('[data-add-item]').forEach(btn => btn.addEventListener('click', () => {
@@ -501,16 +509,16 @@ function renderOrdersTable() {
     const existing = items.find(it => it.productId === productId);
     if (existing) { existing.qty += qty; } else { items.push({ productId, qty, unitPrice }); }
     if (!confirmShortages(checkShortagesForEdit(orderId, items))) return;
-    const cashDiscount = document.getElementById(`editCash-${orderId}`).checked;
-    updateOrderItems(orderId, items, { cashDiscount });
+    const dv = document.getElementById(`editDisc-${orderId}`).value;
+    updateOrderItems(orderId, items, { discountRate: dv === '' ? null : Number(dv) });
     refresh();
   }));
   tbody.querySelectorAll('[data-remove-item]').forEach(btn => btn.addEventListener('click', () => {
     const orderId = btn.dataset.removeItem;
     const items = readCurrentItems(orderId).filter(it => it.productId !== btn.dataset.removeProduct);
     if (items.length === 0) { alert('لازم يفضل صنف واحد على الأقل — استخدم "إلغاء الطلبية" لو عايز تلغيها بالكامل'); return; }
-    const cashDiscount = document.getElementById(`editCash-${orderId}`).checked;
-    updateOrderItems(orderId, items, { cashDiscount });
+    const dv = document.getElementById(`editDisc-${orderId}`).value;
+    updateOrderItems(orderId, items, { discountRate: dv === '' ? null : Number(dv) });
     refresh();
   }));
   tbody.querySelectorAll('[data-void]').forEach(btn => btn.addEventListener('click', () => {
