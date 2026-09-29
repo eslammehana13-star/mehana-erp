@@ -210,6 +210,7 @@ function renderTargetsTable() {
 
   tbody.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (!confirm('تأكيد حذف الهدف ده؟')) return;
       deleteRecord(STORAGE_KEYS.TARGETS, btn.dataset.del);
       refresh();
     });
@@ -269,6 +270,7 @@ function renderScorecard() {
   }).join('');
 
   tbody.querySelectorAll('[data-del-kpi]').forEach(btn => btn.addEventListener('click', () => {
+    if (!confirm('تأكيد حذف الـ KPI ده من الشهر؟')) return;
     deleteRecord(STORAGE_KEYS.KPIS, btn.dataset.delKpi);
     refresh();
   }));

@@ -425,8 +425,9 @@ function renderOrdersTable() {
               <tbody id="itemsBody-${o.id}">${itemsRowsHtml}</tbody>
             </table>
             <div style="display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-              <select class="add-item-product" id="addItemSel-${o.id}">${products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+              <select class="add-item-product" id="addItemSel-${o.id}">${products.map(p => `<option value="${p.id}" data-price="${getEffectivePrice(p.id)}">${esc(p.name)}</option>`).join('')}</select>
               <input type="number" class="add-item-qty" id="addItemQty-${o.id}" value="1" min="1" style="width:70px;">
+              <input type="number" class="add-item-price" id="addItemPrice-${o.id}" value="${getEffectivePrice(products[0]?.id) || 0}" min="0" step="0.01" style="width:90px;" title="السعر — بيتغيّر تلقائياً مع الصنف، عدّله لو عايز">
               <button class="secondary" data-add-item="${o.id}">+ إضافة صنف للطلبية</button>
               <label style="display:flex; align-items:center; gap:4px; font-size:13px;">
                 نسبة الخصم %
@@ -500,12 +501,17 @@ function renderOrdersTable() {
     updateOrderItems(orderId, items, { discountRate: dv === '' ? null : Number(dv) });
     refresh();
   }));
+  tbody.querySelectorAll('.add-item-product').forEach(sel => sel.addEventListener('change', () => {
+    const orderId = sel.id.replace('addItemSel-', '');
+    const priceInput = document.getElementById(`addItemPrice-${orderId}`);
+    if (priceInput) priceInput.value = getEffectivePrice(sel.value) || 0;
+  }));
   tbody.querySelectorAll('[data-add-item]').forEach(btn => btn.addEventListener('click', () => {
     const orderId = btn.dataset.addItem;
     const items = readCurrentItems(orderId);
     const productId = document.getElementById(`addItemSel-${orderId}`).value;
     const qty = Number(document.getElementById(`addItemQty-${orderId}`).value) || 1;
-    const unitPrice = getEffectivePrice(productId) || 0;
+    const unitPrice = Number(document.getElementById(`addItemPrice-${orderId}`).value) || 0;
     const existing = items.find(it => it.productId === productId);
     if (existing) { existing.qty += qty; } else { items.push({ productId, qty, unitPrice }); }
     if (!confirmShortages(checkShortagesForEdit(orderId, items))) return;
@@ -553,9 +559,12 @@ function renderOrdersTable() {
 }
 
 document.getElementById('btnNewMonth').addEventListener('click', () => {
-  if (confirm('تأكيد بدء شهر جديد؟ كل الفواتير الحالية هتتحول أرشيف وتختفي من القوائم والتنبيهات (بتفضل موجودة في كشوف حسابات العملاء)')) {
-    const count = startNewMonth();
-    alert(`تم أرشفة ${count} فاتورة، وبدأنا شهر جديد ✅`);
+  if (confirm('تأكيد بدء شهر جديد؟ الفواتير اللي وصلت Release أو Delivered هتتحول أرشيف وتختفي من القوائم (بتفضل موجودة في كشوف حسابات العملاء). اللي لسه Unconfirmed أو Confirmed هتفضل ظاهرة عشان محتاجة متابعة.')) {
+    const { archived, skipped } = startNewMonth();
+    const msg = skipped > 0
+      ? `تم أرشفة ${archived} فاتورة ✅ (${skipped} فاتورة لسه Unconfirmed/Confirmed اتسابت زي ما هي — تابعها الأول)`
+      : `تم أرشفة ${archived} فاتورة، وبدأنا شهر جديد ✅`;
+    alert(msg);
     refresh();
   }
 });

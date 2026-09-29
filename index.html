@@ -84,7 +84,7 @@
 import {
   esc, inPeriod, getReportOrders,
   initStorage, getAll, STORAGE_KEYS,
-  getCustomerBalance, getOverCreditLimitCustomers,
+  getCustomerBalance, getAllCustomerBalances, getOverCreditLimitCustomers,
   getLowStockAlerts, getChecksDueSoon, getOrdersNeedingRenewal,
   getTopCustomers, getTopProducts, getMonthlyScorecard, getDaysSinceLastBackup,
   getActiveOrders, getAgingReport,
@@ -100,7 +100,8 @@ function currentPeriod() {
 function renderKpis() {
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
   document.getElementById('kpiCustomers').textContent = customers.length;
-  const totalDebt = customers.reduce((sum, c) => sum + Math.max(getCustomerBalance(c.id), 0), 0);
+  const balances = getAllCustomerBalances();
+  const totalDebt = customers.reduce((sum, c) => sum + Math.max(balances[c.id] || 0, 0), 0);
   document.getElementById('kpiDebt').textContent = totalDebt.toLocaleString();
 
   const scorecard = getMonthlyScorecard(currentPeriod());
@@ -170,12 +171,14 @@ function csvRow(cells) { return cells.map(csvCell).join(','); }
 
 function exportMonthlyReport() {
   const period = document.getElementById('reportPeriod').value || currentPeriod();
-  const orders = getReportOrders().filter(o => o.date.startsWith(period));
-  const totalSales = orders.reduce((s, o) => s + o.total, 0);
-  const receipts = getAll(STORAGE_KEYS.RECEIPTS).filter(r => !r.voided && r.date.startsWith(period));
+  const orders = getReportOrders().filter(o => inPeriod(o.date, period));
+  const periodReturns = getAll(STORAGE_KEYS.RETURNS).filter(r => inPeriod(r.date, period));
+  const totalSales = orders.reduce((s, o) => s + o.total, 0) - periodReturns.reduce((s, r) => s + r.totalValue, 0);
+  const receipts = getAll(STORAGE_KEYS.RECEIPTS).filter(r => !r.voided && inPeriod(r.date, period));
   const totalCollected = receipts.reduce((s, r) => s + r.amount, 0);
+  const balances = getAllCustomerBalances();
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
-  const totalDebtNow = customers.reduce((s, c) => s + Math.max(getCustomerBalance(c.id), 0), 0);
+  const totalDebtNow = customers.reduce((s, c) => s + Math.max(balances[c.id] || 0, 0), 0);
 
   const scorecard = getMonthlyScorecard(period);
   const topCustomers = getTopCustomers(period, 10);

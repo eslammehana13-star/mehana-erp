@@ -75,7 +75,7 @@ function addRecord(key, record) {
   const all = getAll(key);
   const newRecord = { id: generateId(), createdAt: new Date().toISOString(), ...record };
   all.push(newRecord);
-  saveAll(key, all);
+  if (!saveAll(key, all)) return null; // فشل الحفظ (مساحة ممتلئة مثلاً) — منسجلش نص عملية
   return newRecord;
 }
 
@@ -95,9 +95,10 @@ function updateRecord(key, id, changes) {
   const all = getAll(key);
   const idx = all.findIndex((r) => r.id === id);
   if (idx === -1) return null;
-  all[idx] = { ...all[idx], ...changes, updatedAt: new Date().toISOString() };
-  saveAll(key, all);
-  return all[idx];
+  const updated = { ...all[idx], ...changes, updatedAt: new Date().toISOString() };
+  all[idx] = updated;
+  if (!saveAll(key, all)) return null; // فشل الحفظ
+  return updated;
 }
 
 function deleteRecord(key, id) {
@@ -119,8 +120,13 @@ function initStorage() {
 // العملاء (Customers)
 // ------------------------------------------------------------
 
-function addCustomer({ name, category = 'عام', openingBalance = 0, creditLimit = 0, phone = '', discountRate = 0, code = '' }) {
-  return addRecord(STORAGE_KEYS.CUSTOMERS, { name, code, category, openingBalance, creditLimit, phone, discountRate });
+function addCustomer({ name, category = 'عام', openingBalance = 0, creditLimit = 0, phone = '', discountRate = 0, code = '', openingBalanceDate = null }) {
+  return addRecord(STORAGE_KEYS.CUSTOMERS, { name, code, category, openingBalance, creditLimit, phone, discountRate, openingBalanceDate });
+}
+
+/** تاريخ احتساب عمر الرصيد الافتتاحي: التاريخ المحدد له لو موجود، وإلا تاريخ إنشاء العميل */
+function openingDateOf(customer) {
+  return customer.openingBalanceDate || customer.createdAt;
 }
 
 /**
@@ -164,7 +170,7 @@ function getCustomerStatement(customerId) {
     .filter((o) => o.customerId === customerId && !o.voided)
     .map((o) => ({
       date: o.date,
-      type: `فاتورة بيع #${o.invoiceNo || '-'} (${o.cashDiscount ? 'نقدي' : 'آجل'})`,
+      type: `فاتورة بيع #${o.invoiceNo || '-'} ${o.discountRate > 0 ? ` (خصم ${o.discountRate}%)` : ''}`,
       debit: o.total, credit: 0, ref: o.id,
     }));
 
@@ -196,7 +202,7 @@ function getCustomerStatement(customerId) {
   const movements = [...sales, ...returns, ...receipts].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   const openingRow = {
-    date: customer ? customer.createdAt : new Date(0).toISOString(),
+    date: customer ? openingDateOf(customer) : new Date(0).toISOString(),
     type: 'رصيد افتتاحي',
     debit: openingBalance > 0 ? openingBalance : 0,
     credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
@@ -215,13 +221,12 @@ function getCustomerStatement(customerId) {
 }
 
 /**
- * ملخص سريع لموقف العميل: عدد وقيمة فواتيره النقدي مقابل الآجل،
- * عشان تفهم بسهولة هل هو عميل "مكس" (بيدفع كاش أحياناً وآجل أحياناً)
+ * ملخص سريع لموقف العميل: عدد وقيمة فواتيره اللي عليها خصم مقابل اللي من غير خصم
  */
 function getCustomerCashCreditMix(customerId) {
   const orders = getAll(STORAGE_KEYS.SALES_ORDERS).filter((o) => o.customerId === customerId && !o.voided);
-  const cash = orders.filter((o) => o.cashDiscount);
-  const credit = orders.filter((o) => !o.cashDiscount);
+  const cash = orders.filter((o) => o.discountRate > 0);
+  const credit = orders.filter((o) => !(o.discountRate > 0));
   return {
     cashCount: cash.length, cashValue: cash.reduce((s, o) => s + o.total, 0),
     creditCount: credit.length, creditValue: credit.reduce((s, o) => s + o.total, 0),
@@ -249,7 +254,7 @@ function getCustomerAging(customerId) {
 
   const debits = [];
   if (customer.openingBalance > 0) {
-    debits.push({ date: customer.createdAt, amount: customer.openingBalance, remaining: customer.openingBalance, label: 'رصيد افتتاحي' });
+    debits.push({ date: openingDateOf(customer), amount: customer.openingBalance, remaining: customer.openingBalance, label: 'رصيد افتتاحي' });
   }
   getAll(STORAGE_KEYS.SALES_ORDERS)
     .filter((o) => o.customerId === customerId && !o.voided)
@@ -263,7 +268,7 @@ function getCustomerAging(customerId) {
     ...validReturns().filter((r) => r.customerId === customerId).map((r) => ({ date: r.date, amount: r.totalValue })),
   ].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  if (customer.openingBalance < 0) credits.unshift({ date: customer.createdAt, amount: -customer.openingBalance });
+  if (customer.openingBalance < 0) credits.unshift({ date: openingDateOf(customer), amount: -customer.openingBalance });
   credits.forEach((r) => {
     let remainingCredit = r.amount;
     for (const debit of debits) {
@@ -378,7 +383,16 @@ function getEffectivePrice(productId) {
   return product.offerPrice !== null && product.offerPrice !== undefined ? product.offerPrice : product.basePrice;
 }
 
-/** الكمية الحالية = مجموع حركات "وارد" - مجموع حركات "صادر" */
+/** خريطة أرصدة كل المنتجات دفعة واحدة (أسرع بكتير من تكرار getProductStock لكل منتج) */
+function getStockMap() {
+  const map = {};
+  getAll(STORAGE_KEYS.INVENTORY_TX).forEach((t) => {
+    map[t.productId] = (map[t.productId] || 0) + (t.type === 'in' ? t.qty : -t.qty);
+  });
+  return map;
+}
+
+/** الكمية الحالية لمنتج واحد = مجموع حركات "وارد" - مجموع حركات "صادر" */
 function getProductStock(productId) {
   return getAll(STORAGE_KEYS.INVENTORY_TX)
     .filter((t) => t.productId === productId)
@@ -391,9 +405,35 @@ function addInventoryTransaction({ productId, type, qty, refType, refId }) {
 
 /** يرجع المنتجات اللي وصلت لحد الطلب (Reorder Level) */
 function getLowStockAlerts() {
+  const stockMap = getStockMap();
   return getAll(STORAGE_KEYS.PRODUCTS)
-    .map((p) => ({ ...p, currentStock: getProductStock(p.id) }))
+    .map((p) => ({ ...p, currentStock: stockMap[p.id] || 0 }))
     .filter((p) => p.reorderLevel > 0 && p.currentStock <= p.reorderLevel);
+}
+
+/** هل المنتج ده استُخدم في أي فاتورة أو مرتجع؟ (لمنع حذفه لو كده) */
+function isProductUsed(productId) {
+  return getAll(STORAGE_KEYS.SALES_ORDERS).some((o) => o.items.some((it) => it.productId === productId))
+    || getAll(STORAGE_KEYS.RETURNS).some((r) => r.items.some((it) => it.productId === productId));
+}
+
+/** خريطة أرصدة كل العملاء دفعة واحدة (أسرع بكتير من تكرار getCustomerBalance لكل عميل) */
+function getAllCustomerBalances() {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const sales = getAll(STORAGE_KEYS.SALES_ORDERS).filter((o) => !o.voided);
+  const receipts = getAll(STORAGE_KEYS.RECEIPTS).filter((r) => !r.voided);
+  const returns = validReturns();
+
+  const salesMap = {}, receiptsMap = {}, returnsMap = {};
+  sales.forEach((o) => { salesMap[o.customerId] = (salesMap[o.customerId] || 0) + o.total; });
+  receipts.forEach((r) => { receiptsMap[r.customerId] = (receiptsMap[r.customerId] || 0) + r.amount; });
+  returns.forEach((r) => { returnsMap[r.customerId] = (returnsMap[r.customerId] || 0) + r.totalValue; });
+
+  const map = {};
+  customers.forEach((c) => {
+    map[c.id] = c.openingBalance + (salesMap[c.id] || 0) - (receiptsMap[c.id] || 0) - (returnsMap[c.id] || 0);
+  });
+  return map;
 }
 
 /**
@@ -426,22 +466,27 @@ function getStockStatusHistory(productId) {
 // ------------------------------------------------------------
 
 /**
- * items: [{ productId, qty, unitPrice }]
- * cashDiscount: هل الفاتورة دي كاش قبل الاستلام؟ لو true، بيتطبق
- * خصم العميل الثابت (customer.discountRate) على الإجمالي، وبيتسجل
- * بشفافية (subtotal / discountRate / discountAmount / total) عشان
- * تقدر ترجع تتأكد إزاي وصلنا للرقم النهائي.
- * ملاحظة: سعر العرض (لو موجود على المنتج) بيتطبق دايماً بغض النظر
- * عن كاش الفاتورة - العميل بياخد خصمه فوق سعر العرض مش بدل منه.
+ * نسبة الخصم للفاتورة: لو اتحددت نسبة يدوياً (رقم، حتى لو 0) بتتطبق،
+ * ولو متحددتش (null / فاضي) بتتاخد تلقائياً من نسبة الخصم المسجلة للعميل.
  */
-function recordSale({ customerId, items, repId = null, cashDiscount = false, date = new Date().toISOString() }) {
-  const subtotal = items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
-
-  let discountRate = 0;
-  if (cashDiscount) {
-    const customer = getAll(STORAGE_KEYS.CUSTOMERS).find((c) => c.id === customerId);
-    discountRate = customer?.discountRate || 0;
+function resolveDiscountRate(customerId, requested) {
+  if (requested !== null && requested !== undefined && requested !== '' && Number.isFinite(Number(requested))) {
+    return Math.min(100, Math.max(0, Number(requested)));
   }
+  const customer = getAll(STORAGE_KEYS.CUSTOMERS).find((c) => c.id === customerId);
+  return customer?.discountRate || 0;
+}
+
+/**
+ * items: [{ productId, qty, unitPrice }]
+ * discountRate: اختياري. لو مااتحددش، بيتطبق خصم العميل المسجل في صفحة العملاء
+ * تلقائياً. لو اتحدد (حتى 0) بيحل محله للفاتورة دي بس. بيتسجل بشفافية
+ * (subtotal / discountRate / discountAmount / total) عشان تقدر ترجع تتأكد.
+ * ملاحظة: سعر العرض (لو موجود على المنتج) بيتطبق دايماً، والخصم فوقه.
+ */
+function recordSale({ customerId, items, repId = null, discountRate: requestedRate = null, date = new Date().toISOString() }) {
+  const subtotal = items.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
+  const discountRate = resolveDiscountRate(customerId, requestedRate);
   const discountAmount = subtotal * (discountRate / 100);
   const total = subtotal - discountAmount;
 
@@ -456,7 +501,7 @@ function recordSale({ customerId, items, repId = null, cashDiscount = false, dat
   const invoiceNo = getAll(STORAGE_KEYS.SALES_ORDERS).length + 1;
 
   const order = addRecord(STORAGE_KEYS.SALES_ORDERS, {
-    customerId, repId, items: itemsWithStatus, subtotal, cashDiscount, discountRate, discountAmount, total, date,
+    customerId, repId, items: itemsWithStatus, subtotal, cashDiscount: discountRate > 0, discountRate, discountAmount, total, date,
     invoiceNo,                     // رقم فاتورة داخلي تسلسلي بسيط (#1, #2, ...)
     orderNumber: null,             // رقم الطلبية على الساب - بيتدخل يدوي بعدين
     sentByEmail: false,            // تشك بسيط: اتبعتت الطلبية بالإيميل ولا لأ
@@ -464,6 +509,7 @@ function recordSale({ customerId, items, repId = null, cashDiscount = false, dat
     archived: false,               // بيتحول true لما تبدأ شهر جديد
     status: 'unconfirmed',         // Unconfirmed -> Confirmed -> Release -> Delivered (تتغير براحتك في أي وقت)
   });
+  if (!order) throw new Error('تعذّر حفظ الفاتورة — المساحة ممتلئة على الأرجح. اعمل نسخة احتياطية وفرّغ مساحة.');
 
   items.forEach((item) => {
     addInventoryTransaction({
@@ -542,7 +588,8 @@ function getActiveOrders() {
  * الحركات القديمة المرتبطة بالطلبية ويسجل حركات جديدة تعكس الأصناف
  * المحدّثة، فمايحصلش ازدواج أو نقص في رصيد المخزون).
  */
-function updateOrderItems(orderId, newItems, { cashDiscount } = {}) {
+/** discountRate: undefined = سيب نسبة الطلبية زي ما هي، null/فاضي = خصم العميل الحالي، رقم = النسبة دي */
+function updateOrderItems(orderId, newItems, { discountRate: requestedRate } = {}) {
   const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
   if (!order) return null;
 
@@ -564,19 +611,15 @@ function updateOrderItems(orderId, newItems, { cashDiscount } = {}) {
   });
 
   const subtotal = itemsWithStatus.reduce((sum, i) => sum + i.qty * i.unitPrice, 0);
-  const useCashDiscount = cashDiscount !== undefined ? cashDiscount : order.cashDiscount;
-  let discountRate = 0;
-  if (useCashDiscount) {
-    const customer = getAll(STORAGE_KEYS.CUSTOMERS).find((c) => c.id === order.customerId);
-    discountRate = customer?.discountRate || 0;
-  }
+  const discountRate = requestedRate === undefined ? (order.discountRate || 0) : resolveDiscountRate(order.customerId, requestedRate);
   const discountAmount = subtotal * (discountRate / 100);
   const total = subtotal - discountAmount;
 
   const updated = updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, {
-    items: itemsWithStatus, subtotal, cashDiscount: useCashDiscount, discountRate, discountAmount, total,
+    items: itemsWithStatus, subtotal, cashDiscount: discountRate > 0, discountRate, discountAmount, total,
     editedAt: new Date().toISOString(),
   });
+  if (!updated) throw new Error('تعذّر حفظ تعديل الفاتورة — المساحة ممتلئة على الأرجح. اعمل نسخة احتياطية وفرّغ مساحة.');
 
   itemsWithStatus.forEach((item) => {
     addInventoryTransaction({ productId: item.productId, type: 'out', qty: item.qty, refType: 'sales_order', refId: orderId });
@@ -632,6 +675,7 @@ function recordReturn({ orderId, items, date = new Date().toISOString() }) {
   const ret = addRecord(STORAGE_KEYS.RETURNS, {
     orderId, customerId: order.customerId, items: itemsWithPrice, totalValue, date,
   });
+  if (!ret) throw new Error('تعذّر حفظ المرتجع — المساحة ممتلئة على الأرجح. اعمل نسخة احتياطية وفرّغ مساحة.');
 
   itemsWithPrice.forEach((it) => {
     addInventoryTransaction({ productId: it.productId, type: 'in', qty: it.qty, refType: 'sales_return', refId: ret.id });
@@ -648,14 +692,17 @@ function getOrderReturns(orderId) {
 }
 
 /**
- * بداية شهر جديد: كل الطلبيات الحالية بتتحول أرشيف (مش بتتمسح، بتفضل
- * موجودة في كشف حساب العميل وحساباته زي ما هي) وبتختفي من القوائم
- * والتنبيهات النشطة عشان تبدأ تشتغل من الصفر.
+ * بداية شهر جديد: الطلبيات المكتملة بس (Release / Delivered) بتتحول أرشيف
+ * (مش بتتمسح، بتفضل موجودة في كشف حساب العميل وحساباته زي ما هي) وبتختفي
+ * من القوائم والتنبيهات النشطة. الطلبيات اللي لسه Unconfirmed/Confirmed
+ * بتفضل ظاهرة عشان محتاجة تجديد حجز على الساب أو تأكيد لسه.
+ * force=true بيأرشف كل حاجة بغض النظر عن الحالة.
  */
-function startNewMonth() {
+function startNewMonth({ force = false } = {}) {
   const active = getActiveOrders();
-  active.forEach((o) => updateRecord(STORAGE_KEYS.SALES_ORDERS, o.id, { archived: true, archivedAt: new Date().toISOString() }));
-  return active.length;
+  const toArchive = force ? active : active.filter((o) => ['release', 'delivered'].includes(o.status));
+  toArchive.forEach((o) => updateRecord(STORAGE_KEYS.SALES_ORDERS, o.id, { archived: true, archivedAt: new Date().toISOString() }));
+  return { archived: toArchive.length, skipped: active.length - toArchive.length };
 }
 
 /**
@@ -731,12 +778,12 @@ function parseRows(text) {
     const sep = l.includes('\t') ? '\t' : (l.includes(';') ? ';' : ',');
     return l.split(sep).map((c) => c.trim().replace(/^"|"$/g, ''));
   });
-  if (rows.length && /^(الاسم|اسم|name)/i.test(rows[0][0])) rows.shift(); // تخطي صف العناوين
+  if (rows.length && /^(الاسم|اسم|name|material|item|كود|code|sku|الوصف|description|product|الصنف)/i.test(rows[0][0])) rows.shift(); // تخطي صف العناوين
   return rows;
 }
 const toNum = (v) => { const n = Number(String(v ?? '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[,٬\s%]/g, '')); return Number.isFinite(n) ? n : 0; };
 
-/** الأعمدة: الاسم | الكود | التصنيف | الهاتف | الرصيد الافتتاحي | حد الائتمان | خصم الكاش % — الاسم بس هو الإجباري.
+/** الأعمدة: الاسم | الكود | التصنيف | الهاتف | الرصيد الافتتاحي | حد الائتمان | نسبة الخصم % — الاسم بس هو الإجباري.
  *  المكرر (بالكود أو الاسم) بيتخطى، ولو التاجر موجود من غير كود والكود جه دلوقتي بيتضاف له. */
 function importCustomers(text) {
   const all = getAll(STORAGE_KEYS.CUSTOMERS);
@@ -770,8 +817,10 @@ function importProducts(text, { update = false } = {}) {
     if (old) {
       if (!update) { res.skipped.push(sku || name); return; }
       touched.add(k);
-      const newPrice = toNum(price);
-      if (newPrice !== old.basePrice) res.priceChanges.push({ sku: old.sku || old.name, from: old.basePrice, to: newPrice });
+      // خانة السعر فاضية = سيب السعر القديم زي ما هو، متصفّرهوش
+      const priceGiven = String(price ?? '').trim() !== '';
+      const newPrice = priceGiven ? toNum(price) : old.basePrice;
+      if (priceGiven && newPrice !== old.basePrice) res.priceChanges.push({ sku: old.sku || old.name, from: old.basePrice, to: newPrice });
       updateRecord(STORAGE_KEYS.PRODUCTS, old.id, { name, category: category || old.category, basePrice: newPrice, description: description || old.description });
       if (old.offerPrice !== null && old.offerPrice !== undefined) res.withOffer.push(old.sku || old.name);
       res.updated++;
@@ -848,7 +897,16 @@ function hasCat(cat, k) { return String(cat || '').split('|').map((x) => x.trim(
 function computeKpiAchieved(kpi) {
   const orders = getReportOrders().filter((o) => inPeriod(o.date, kpi.period));
   const products = getAll(STORAGE_KEYS.PRODUCTS);
-  const periodReturns = validReturns().filter((r) => inPeriod(r.date, kpi.period));
+  const ordersById = {};
+  orders.forEach((o) => { ordersById[o.id] = o; });
+  // المرتجعات بتتفلتر بنفس شرط onlyDelivered على أساس حالة الفاتورة الأصلية،
+  // فمرتجع على فاتورة مش Delivered ميتخصمش من KPI بيحسب Delivered بس
+  const periodReturns = validReturns().filter((r) => {
+    if (!inPeriod(r.date, kpi.period)) return false;
+    if (!kpi.onlyDelivered) return true;
+    const o = ordersById[r.orderId] || getAll(STORAGE_KEYS.SALES_ORDERS).find((oo) => oo.id === r.orderId);
+    return o && o.status === 'delivered';
+  });
 
   if (kpi.metricType === 'active_dealers') {
     const delivered = orders.filter((o) => o.status === 'delivered');
@@ -866,17 +924,22 @@ function computeKpiAchieved(kpi) {
   if (kpi.metricType === 'category_value' || kpi.metricType === 'category_count') {
     let sum = 0;
     filteredOrders.forEach((o) => {
+      // نفس منطق total_value: القيمة بعد خصم الفاتورة، مش قبله، عشان الأرقام تتفق مع بعضها
+      const factor = kpi.metricType === 'category_value' ? 1 - (o.discountRate || 0) / 100 : 1;
       o.items.forEach((it) => {
         const product = products.find((p) => p.id === it.productId);
         if (product && hasCat(product.category, kpi.category)) {
-          sum += kpi.metricType === 'category_count' ? it.qty : it.qty * it.unitPrice;
+          sum += kpi.metricType === 'category_count' ? it.qty : it.qty * it.unitPrice * factor;
         }
       });
     });
     periodReturns.forEach((r) => {
+      const o = ordersById[r.orderId];
+      const factor = kpi.metricType === 'category_value' && o ? 1 - (o.discountRate || 0) / 100 : 1;
       r.items.forEach((it) => {
         const product = products.find((p) => p.id === it.productId);
         if (product && hasCat(product.category, kpi.category)) {
+          // سعر المرتجع مسجّل بعد الخصم أصلاً (recordReturn)، فمانضربوش في factor تاني هنا لو already-discounted
           sum -= kpi.metricType === 'category_count' ? it.qty : it.qty * it.unitPrice;
         }
       });
@@ -939,7 +1002,8 @@ function getDaysSinceLastBackup() {
 function importBackup(jsonData) {
   const known = jsonData && typeof jsonData === 'object' ? Object.keys(jsonData).filter((k) => Object.values(STORAGE_KEYS).includes(k)) : [];
   if (known.length === 0) throw new Error('invalid backup');
-  if (typeof confirm === 'function' && !confirm('⚠ الاستعادة هتمسح كل البيانات الحالية وتحط النسخة مكانها. متأكد؟')) return false;
+  if (typeof confirm === 'function' && !confirm('⚠ الاستعادة هتستبدل الجداول الموجودة في الملف ده بس (اللي مش موجود في الملف هيفضل زي ما هو). هنعمل نسخة احتياطية من وضعك الحالي أول قبل ما نبدأ، احتياطاً. متأكد إنك عايز تكمل؟')) return false;
+  downloadBackup(); // نسخة أمان تلقائية من الوضع الحالي قبل الاستبدال
   Object.entries(jsonData).forEach(([key, value]) => {
     if (Object.values(STORAGE_KEYS).includes(key)) {
       saveAll(key, value);
@@ -958,13 +1022,13 @@ export {
   // عام
   getAll, addRecord, updateRecord, deleteRecord,
   // عملاء
-  addCustomer, getCustomerBalance, getCustomerStatement, getCustomerCashCreditMix,
+  addCustomer, getCustomerBalance, getAllCustomerBalances, getCustomerStatement, getCustomerCashCreditMix,
   getOverCreditLimitCustomers, getCustomerAging, getAgingReport,
   getTopCustomers, getTopProducts,
   // مندوبين
   addRep, importCustomers, importProducts,
   // منتجات ومخزون
-  addProduct, getProductStock, addInventoryTransaction, getLowStockAlerts,
+  addProduct, getProductStock, getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
   setProductOffer, clearProductOffer, getEffectivePrice,
   addStockStatusUpdate, getLatestStockStatus, getStockStatusHistory,
   // عمليات مركّبة

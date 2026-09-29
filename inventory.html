@@ -157,7 +157,7 @@
 import {
   esc, inPeriod, getReportOrders, importProducts,
   initStorage, addProduct, getAll, STORAGE_KEYS,
-  getProductStock, addInventoryTransaction, getLowStockAlerts,
+  getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
   addStockStatusUpdate, getLatestStockStatus,
   setProductOffer, clearProductOffer, getEffectivePrice,
   deleteRecord, updateRecord, downloadBackup, importBackup,
@@ -186,11 +186,12 @@ let editingProductId = null;
 
 function renderProductsTable() {
   const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const stockMap = getStockMap();
   const tbody = document.getElementById('productsTable');
   document.getElementById('emptyState').style.display = products.length ? 'none' : 'block';
   tbody.innerHTML = products.map(p => {
-    const stock = getProductStock(p.id);
-    const low = stock <= p.reorderLevel;
+    const stock = stockMap[p.id] || 0;
+    const low = p.reorderLevel > 0 && stock <= p.reorderLevel; // نفس شرط getLowStockAlerts بالظبط
     const status = getLatestStockStatus(p.id);
     const atpDisplay = status && status.atp !== null ? status.atp : '-';
     const incomingDisplay = status && status.incoming !== null ? status.incoming : '-';
@@ -267,8 +268,13 @@ function renderProductsTable() {
   });
   tbody.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (confirm('تأكيد حذف المنتج؟ (سجل الحركات القديمة هيفضل موجود)')) {
-        deleteRecord(STORAGE_KEYS.PRODUCTS, btn.dataset.del);
+      const pid = btn.dataset.del;
+      if (isProductUsed(pid)) {
+        alert('مينفعش تحذف المنتج ده — مستخدم في فواتير أو مرتجعات قديمة، وحذفه هيخليه يختفي من التقارير والـ KPIs بصمت. لو عايز توقفه بس، امسح حد الطلب واسم المنتج وضيفله ملاحظة "متوقف" بدل الحذف.');
+        return;
+      }
+      if (confirm('تأكيد حذف المنتج؟ (سجل حركات المخزون القديمة هيفضل موجود)')) {
+        deleteRecord(STORAGE_KEYS.PRODUCTS, pid);
         refresh();
       }
     });

@@ -94,6 +94,10 @@
     <input type="text" id="c_category" placeholder="التصنيف (موزع/تاجر تجزئة..)" value="عام">
     <input type="text" id="c_phone" placeholder="رقم الهاتف">
     <input type="number" id="c_opening" placeholder="الرصيد الافتتاحي" value="0">
+    <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); min-width:170px;">
+      تاريخ الرصيد الافتتاحي
+      <input type="date" id="c_openingDate" title="سيبها فاضية لو الرصيد الافتتاحي حديث">
+    </label>
     <input type="number" id="c_limit" placeholder="حد الائتمان" value="0" min="0">
     <input type="number" id="c_discount" placeholder="نسبة الخصم % (بتتطبق تلقائياً على فواتيره)" value="0" min="0" max="100" step="0.5">
     <button type="submit">إضافة</button>
@@ -178,7 +182,7 @@
 import {
   esc, importCustomers,
   initStorage, addCustomer, getAll, STORAGE_KEYS,
-  getCustomerBalance, getCustomerStatement, getCustomerCashCreditMix, recordReceipt,
+  getCustomerBalance, getAllCustomerBalances, getCustomerStatement, getCustomerCashCreditMix, recordReceipt,
   getOverCreditLimitCustomers, getAgingReport,
   deleteRecord, updateRecord, downloadBackup, importBackup,
 } from './erp-data-layer.js';
@@ -212,7 +216,8 @@ function renderCreditAlerts() {
 function renderKpis() {
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
   document.getElementById('kpiCount').textContent = customers.length;
-  const totalDebt = customers.reduce((sum, c) => sum + Math.max(getCustomerBalance(c.id), 0), 0);
+  const balances = getAllCustomerBalances();
+  const totalDebt = customers.reduce((sum, c) => sum + Math.max(balances[c.id] || 0, 0), 0);
   document.getElementById('kpiDebt').textContent = totalDebt.toLocaleString();
 }
 
@@ -221,6 +226,7 @@ let editingCustomerId = null;
 function renderCustomersTable() {
   const query = (document.getElementById('customerSearch').value || '').trim().toLowerCase();
   const customers = getAll(STORAGE_KEYS.CUSTOMERS).filter(c => !query || (c.name + " " + (c.code || "")).toLowerCase().includes(query));
+  const balances = getAllCustomerBalances();
   const tbody = document.getElementById('customersTable');
   document.getElementById('emptyState').style.display = customers.length ? 'none' : 'block';
   tbody.innerHTML = customers.map(c => {
@@ -239,7 +245,7 @@ function renderCustomersTable() {
         </td>
       </tr>`;
     }
-    const balance = getCustomerBalance(c.id);
+    const balance = balances[c.id] || 0;
     const cls = balance > 0 ? 'debt' : (balance < 0 ? 'credit' : '');
     return `
       <tr>
@@ -336,6 +342,7 @@ document.getElementById('customerForm').addEventListener('submit', (e) => {
     category: document.getElementById('c_category').value.trim() || 'عام',
     phone: document.getElementById('c_phone').value.trim(),
     openingBalance: Number(document.getElementById('c_opening').value) || 0,
+    openingBalanceDate: document.getElementById('c_openingDate').value || null,
     creditLimit: Number(document.getElementById('c_limit').value) || 0,
     discountRate: Number(document.getElementById('c_discount').value) || 0,
   });
