@@ -238,7 +238,10 @@ function renderCustomersTable() {
         <td><input type="text" class="e-category" value="${esc(c.category)}"></td>
         <td><input type="number" class="e-limit" value="${c.creditLimit}" style="width:80px;"></td>
         <td><input type="number" class="e-discount" value="${c.discountRate || 0}" style="width:60px;"></td>
-        <td class="muted">-</td>
+        <td>
+          <input type="number" class="e-opening" value="${c.openingBalance || 0}" style="width:90px;" title="الرصيد الافتتاحي">
+          <input type="date" class="e-openingDate" value="${c.openingBalanceDate ? c.openingBalanceDate.slice(0,10) : ''}" style="width:130px;" title="تاريخ الرصيد الافتتاحي">
+        </td>
         <td class="row-actions">
           <button data-save-cust="${c.id}">حفظ</button>
           <button class="secondary" data-cancel-cust="1">إلغاء</button>
@@ -279,6 +282,8 @@ function renderCustomersTable() {
         category: row.querySelector('.e-category').value.trim(),
         creditLimit: Number(row.querySelector('.e-limit').value) || 0,
         discountRate: Number(row.querySelector('.e-discount').value) || 0,
+        openingBalance: Number(row.querySelector('.e-opening').value) || 0,
+        openingBalanceDate: row.querySelector('.e-openingDate').value || null,
       });
       editingCustomerId = null;
       refresh();
