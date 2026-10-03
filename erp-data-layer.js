@@ -573,7 +573,7 @@ function recordSale({ customerId, items, repId = null, discountRate: requestedRa
   const products = getAll(STORAGE_KEYS.PRODUCTS);
   const itemsWithStatus = items.map((i) => {
     const product = products.find((p) => p.id === i.productId);
-    return { ...i, status: i.status || 'unconfirmed', listPriceAtSale: product ? product.basePrice : i.unitPrice };
+    return { ...i, status: i.status || 'confirmed', listPriceAtSale: product ? product.basePrice : i.unitPrice };
   });
 
   const invoiceNo = getAll(STORAGE_KEYS.SALES_ORDERS).length + 1;
