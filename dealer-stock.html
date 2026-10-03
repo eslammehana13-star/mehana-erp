@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مخزون التجار</title>
+<style>
+  :root {
+    --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
+    --primary: #1F5065; --primary-dark: #123244; --danger: #A6402F; --ok: #1F7A4D;
+    --warn-bg: #F5EBD6; --warn-border: #B8862E; --border: #DCE1DF;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Dubai', 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; }
+  h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input, select, textarea { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; flex: 1; min-width: 110px; background: #fff; color: var(--text); transition: border-color .15s ease; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,80,101,0.12); }
+  button { padding: 9px 16px; border: none; border-radius: 8px; background: var(--primary); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, transform .1s ease; }
+  button:hover { background: var(--primary-dark); }
+  button:active { transform: scale(0.98); }
+  button.secondary { background: var(--surface-alt, #E7EAE7); color: var(--text); border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .zero { color: var(--warn-border); font-weight: 700; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .row-actions button { padding: 4px 8px; font-size: 12px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
+  nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
+  nav a.active { background: var(--primary); color: #fff; }
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<nav>
+  <a href="index.html">🏠 الرئيسية</a>
+  <a href="inventory.html">📦 المخزون</a>
+  <a href="customers.html">💰 العملاء</a>
+  <a href="dealer-stock.html" class="active">🏬 مخزون التجار</a>
+  <a href="invoices.html">📄 الفواتير</a>
+  <a href="checks.html">🧾 الشيكات</a>
+  <a href="targets.html">🎯 الأهداف</a>
+</nav>
+
+<h1>🏬 مخزون التجار</h1>
+<p class="muted">الكمية اللي فعلياً عند كل تاجر من كل صنف — بتسجلها وقت زيارتك له (عدّ فعلي)، مش حسابك إنت.</p>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>نظرة عامة على كل التجار</h2>
+  </div>
+  <table>
+    <thead><tr><th>التاجر</th><th>الكود</th><th>عدد الأصناف المسجلة</th><th>إجمالي القطع</th><th>القيمة التقديرية</th><th>آخر تحديث</th><th></th></tr></thead>
+    <tbody id="overviewTable"></tbody>
+  </table>
+  <p class="muted" id="overviewEmpty" style="display:none">لسه مفيش تجار مسجلين. أضفهم من صفحة العملاء الأول.</p>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>تحديث مخزون تاجر معيّن</h2>
+    <select id="d_customer" style="max-width:260px;"></select>
+  </div>
+  <p class="muted" id="lastVisitNote"></p>
+  <p class="muted">انسخ من إكسل والصق سطر لكل صنف: <b>الكود ← الكمية</b>. المطابقة بالكود (SKU) حصراً، وأي صنف مكرر في اللصق بياخد آخر قيمة. الأصناف اللي معدتش في اللصق بتفضل بآخر كمية مسجلة لها.</p>
+  <textarea id="dealerStockPaste" rows="5" placeholder="مثال:&#10;HGP3I8W50S&#9;3&#10;HGV1F8Y52S&#9;0"></textarea>
+  <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" id="btnImportDealerStock">📥 تحديث المخزون</button>
+    <button type="button" class="secondary" id="btnCopyCodes">📋 نسخ قائمة الأكواد (للعدّ في الزيارة)</button>
+    <button type="button" class="secondary" id="btnExportDealer">⬇ تصدير تقرير هذا التاجر (Excel)</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>المخزون الحالي عند التاجر المختار</h2>
+  <table>
+    <thead><tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الكمية</th><th>القيمة التقديرية</th><th>آخر تحديث</th></tr></thead>
+    <tbody id="detailTable"></tbody>
+  </table>
+  <p class="muted" id="detailEmpty" style="display:none">لسه مفيش بيانات مسجلة لهذا التاجر. الصق الكود والكمية فوق وحدّث.</p>
+</div>
+
+<script type="module">
+import {
+  esc, initStorage, getAll, STORAGE_KEYS,
+  importDealerStock, getDealerStock, getDealersStockOverview,
+} from './erp-data-layer.js';
+
+initStorage();
+
+function refresh() {
+  renderOverview();
+  renderCustomerSelect();
+  renderDetail();
+}
+
+function renderOverview() {
+  const rows = getDealersStockOverview().filter(r => r.itemsCount > 0 || getAll(STORAGE_KEYS.CUSTOMERS).length);
+  const tbody = document.getElementById('overviewTable');
+  const all = getAll(STORAGE_KEYS.CUSTOMERS);
+  document.getElementById('overviewEmpty').style.display = all.length ? 'none' : 'block';
+  tbody.innerHTML = getDealersStockOverview().map(r => `
+    <tr>
+      <td>${esc(r.customer.name)}</td>
+      <td>${esc(r.customer.code || '-')}</td>
+      <td>${r.itemsCount}</td>
+      <td>${r.totalUnits.toLocaleString()}</td>
+      <td>${r.totalValue.toLocaleString()}</td>
+      <td class="muted">${r.lastDate ? new Date(r.lastDate).toLocaleDateString('ar-EG') : 'لسه معملتش عدّ'}</td>
+      <td><button class="secondary" data-open="${r.customer.id}">فتح</button></td>
+    </tr>`).join('');
+  tbody.querySelectorAll('[data-open]').forEach(btn => btn.addEventListener('click', () => {
+    document.getElementById('d_customer').value = btn.dataset.open;
+    renderDetail();
+    document.getElementById('d_customer').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+}
+
+function renderCustomerSelect() {
+  const sel = document.getElementById('d_customer');
+  const prev = sel.value;
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  sel.innerHTML = customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.code ? ' (' + esc(c.code) + ')' : ''}</option>`).join('');
+  if (prev && customers.some(c => c.id === prev)) sel.value = prev;
+}
+
+function renderDetail() {
+  const customerId = document.getElementById('d_customer').value;
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const pMap = new Map(products.map(p => [p.id, p]));
+  const stock = customerId ? getDealerStock(customerId).sort((a, b) => (pMap.get(a.productId)?.name || '').localeCompare(pMap.get(b.productId)?.name || '', 'ar')) : [];
+  const tbody = document.getElementById('detailTable');
+  document.getElementById('detailEmpty').style.display = stock.length ? 'none' : 'block';
+  tbody.innerHTML = stock.map(r => {
+    const p = pMap.get(r.productId);
+    if (!p) return '';
+    const value = r.qty * (p.basePrice || 0);
+    return `
+      <tr>
+        <td>${esc(p.name)}</td>
+        <td>${esc(p.sku || '-')}</td>
+        <td>${esc(p.category || '-')}</td>
+        <td class="${r.qty === 0 ? 'zero' : ''}">${r.qty}${r.qty === 0 ? ' (فرصة بيع)' : ''}</td>
+        <td>${value.toLocaleString()}</td>
+        <td class="muted">${new Date(r.date).toLocaleDateString('ar-EG')}</td>
+      </tr>`;
+  }).join('');
+
+  const lastDate = stock.reduce((m, r) => (!m || r.date > m ? r.date : m), null);
+  document.getElementById('lastVisitNote').textContent = lastDate
+    ? `آخر تحديث لمخزون هذا التاجر: ${new Date(lastDate).toLocaleDateString('ar-EG')} (${stock.length} صنف مسجّل)`
+    : 'لسه معملتش عدّ مخزون لهذا التاجر.';
+}
+
+document.getElementById('d_customer').addEventListener('change', renderDetail);
+
+document.getElementById('btnImportDealerStock').addEventListener('click', () => {
+  const customerId = document.getElementById('d_customer').value;
+  if (!customerId) { alert('أضف تاجر أولاً من صفحة العملاء'); return; }
+  const box = document.getElementById('dealerStockPaste');
+  if (!box.value.trim()) { alert('الصق الكود والكمية الأول'); return; }
+  const r = importDealerStock(customerId, box.value);
+  box.value = '';
+  refresh();
+  let msg = `تم تسجيل ${r.added} صنف ✅`;
+  if (r.notFound.length) msg += `\n⚠ ${r.notFound.length} كود مش موجود عندك بالمخزون: ${r.notFound.slice(0, 10).join('، ')}`;
+  alert(msg);
+});
+
+document.getElementById('btnCopyCodes').addEventListener('click', async () => {
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const text = products.map(p => `${p.sku || '-'}\t${p.name}`).join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('تم نسخ قائمة الأكواد (' + products.length + ' صنف) — الصقها في أي ورقة أو نوت وانت بتعدّ عند التاجر.');
+  } catch {
+    alert('مقدرتش أنسخ تلقائي، خد القائمة من هنا:\n\n' + text.slice(0, 2000));
+  }
+});
+
+function csvCell(v) { return `"${String(v).replace(/"/g, '""')}"`; }
+function csvRow(cells) { return cells.map(csvCell).join(','); }
+
+document.getElementById('btnExportDealer').addEventListener('click', () => {
+  const customerId = document.getElementById('d_customer').value;
+  if (!customerId) { alert('اختار تاجر أولاً'); return; }
+  const customer = getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === customerId);
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map(p => [p.id, p]));
+  const stock = getDealerStock(customerId);
+  const rows = [['تقرير مخزون التاجر', customer?.name || ''], ['الكود', customer?.code || ''], []];
+  rows.push(['المنتج', 'الكود', 'التصنيف', 'الكمية', 'القيمة التقديرية', 'آخر تحديث']);
+  stock.forEach(r => {
+    const p = pMap.get(r.productId);
+    if (!p) return;
+    rows.push([p.name, p.sku || '-', p.category || '-', r.qty, r.qty * (p.basePrice || 0), new Date(r.date).toLocaleDateString('ar-EG')]);
+  });
+  const csv = '\uFEFF' + rows.map(csvRow).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `مخزون-${customer?.name || 'تاجر'}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+refresh();
+</script>
+</body>
+</html>

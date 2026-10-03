@@ -29,6 +29,7 @@ const STORAGE_KEYS = {
   KPIS: 'erp_monthly_kpis',
   REPS: 'erp_sales_reps',
   STOCK_STATUS: 'erp_stock_status_log',
+  DEALER_STOCK: 'erp_dealer_stock',
   SETTINGS: 'erp_settings',
   META: 'erp_meta', // آخر تحديث، رقم النسخة، إلخ
 };
@@ -442,8 +443,30 @@ function getAllCustomerBalances() {
  * بنسجلها كـ "سجل تاريخي" (Log) مش كرقم ثابت بيتم الكتابة فوقه،
  * عشان تقدر ترجع تشوف امتى اتغيّرت والقيمة القديمة قبل التحديث.
  */
-function addStockStatusUpdate({ productId, atp = null, incoming = null, note = '' }) {
-  return addRecord(STORAGE_KEYS.STOCK_STATUS, { productId, atp, incoming, note, date: new Date().toISOString() });
+function addStockStatusUpdate({ productId, atp = null, incoming = null, orders = null, remaining = null, pxxGroup = '', note = '' }) {
+  return addRecord(STORAGE_KEYS.STOCK_STATUS, { productId, atp, incoming, orders, remaining, pxxGroup, note, date: new Date().toISOString() });
+}
+
+/**
+ * استيراد دوري لملف ATP من الساب (بيتحدّث كل يومين تقريباً).
+ * الأعمدة بالترتيب: PXX | VIB (كود الموديل) | Type | Incoming | ATP | Orders | Remaining Qty
+ * المطابقة بالكود (VIB) حصراً. المنتج الغير موجود بيتسجل في notFound، والسالب (Backorder) في negative.
+ */
+function importStockStatus(text) {
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const byCode = new Map(products.filter((p) => p.sku).map((p) => [p.sku.trim().toLowerCase(), p]));
+  const res = { updated: 0, notFound: [], negative: [] };
+  const now = new Date().toISOString();
+  parseRows(text).forEach(([pxxGroup, vib, type, incoming, atp, orders, remaining]) => {
+    if (!vib || vib.trim().toLowerCase() === 'vib') return; // تخطي صف العناوين
+    const p = byCode.get(vib.trim().toLowerCase());
+    if (!p) { res.notFound.push(vib); return; }
+    const rem = remaining === undefined || remaining === '' ? toNum(atp) - toNum(orders) : toNum(remaining);
+    addRecord(STORAGE_KEYS.STOCK_STATUS, { productId: p.id, atp: toNum(atp), incoming: toNum(incoming), orders: toNum(orders), remaining: rem, pxxGroup: pxxGroup || '', note: '', date: now });
+    res.updated++;
+    if (rem < 0) res.negative.push({ sku: p.sku, name: p.name, remaining: rem });
+  });
+  return res;
 }
 
 /** آخر تحديث مسجّل لمنتج معيّن (أو null لو لسه معملوش تحديث) */
@@ -459,6 +482,61 @@ function getStockStatusHistory(productId) {
   return getAll(STORAGE_KEYS.STOCK_STATUS)
     .filter((s) => s.productId === productId)
     .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+
+// ------------------------------------------------------------
+// مخزون التاجر: الكمية اللي موجودة فعلياً عند كل تاجر من كل صنف،
+// بتتسجل بالعدّ وقت الزيارة (سجل تاريخي زي ATP، مش رقم بيتكتب فوقه).
+// ------------------------------------------------------------
+
+/** الأعمدة: الكود ← الكمية. المطابقة بالكود (SKU) حصراً. */
+function importDealerStock(customerId, text) {
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const byCode = new Map(products.filter((p) => p.sku).map((p) => [p.sku.trim().toLowerCase(), p]));
+  const res = { added: 0, notFound: [] };
+  const now = new Date().toISOString();
+  parseRows(text).forEach(([code, qty]) => {
+    if (!code) return;
+    const k = code.trim().toLowerCase();
+    if (k === 'كود' || k === 'code' || k === 'sku') return;
+    const p = byCode.get(k);
+    if (!p) { res.notFound.push(code); return; }
+    addRecord(STORAGE_KEYS.DEALER_STOCK, { customerId, productId: p.id, qty: toNum(qty), date: now });
+    res.added++;
+  });
+  return res;
+}
+
+/** آخر كمية مسجّلة لكل صنف عند تاجر معيّن */
+function getDealerStock(customerId) {
+  const recs = getAll(STORAGE_KEYS.DEALER_STOCK).filter((r) => r.customerId === customerId);
+  const latest = new Map();
+  recs.forEach((r) => {
+    const cur = latest.get(r.productId);
+    if (!cur || new Date(r.date) > new Date(cur.date)) latest.set(r.productId, r);
+  });
+  return [...latest.values()];
+}
+
+/** تاريخ تحديثات صنف معيّن عند تاجر معيّن، الأحدث أولاً */
+function getDealerStockHistory(customerId, productId) {
+  return getAll(STORAGE_KEYS.DEALER_STOCK)
+    .filter((r) => r.customerId === customerId && r.productId === productId)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+/** ملخص كل التجار: عدد الأصناف المسجلة، إجمالي القطع، القيمة التقديرية، آخر تحديث */
+function getDealersStockOverview() {
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const pMap = new Map(products.map((p) => [p.id, p]));
+  return getAll(STORAGE_KEYS.CUSTOMERS).map((c) => {
+    const stock = getDealerStock(c.id);
+    const totalUnits = stock.reduce((s, r) => s + r.qty, 0);
+    const totalValue = stock.reduce((s, r) => s + r.qty * (pMap.get(r.productId)?.basePrice || 0), 0);
+    const lastDate = stock.reduce((m, r) => (!m || r.date > m ? r.date : m), null);
+    return { customer: c, itemsCount: stock.length, totalUnits, totalValue, lastDate };
+  });
 }
 
 // ------------------------------------------------------------
@@ -1030,7 +1108,8 @@ export {
   // منتجات ومخزون
   addProduct, getProductStock, getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
   setProductOffer, clearProductOffer, getEffectivePrice,
-  addStockStatusUpdate, getLatestStockStatus, getStockStatusHistory,
+  addStockStatusUpdate, importStockStatus, getLatestStockStatus, getStockStatusHistory,
+  importDealerStock, getDealerStock, getDealerStockHistory, getDealersStockOverview,
   // عمليات مركّبة
   recordSale, recordReceipt,
   // حالات الطلبية والأصناف

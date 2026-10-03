@@ -70,6 +70,7 @@
   <a href="index.html">🏠 الرئيسية</a>
   <a href="inventory.html">📦 المخزون</a>
   <a href="customers.html">💰 العملاء</a>
+  <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html" class="active">📄 الفواتير</a>
   <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
@@ -138,7 +139,7 @@
 import {
   esc, getReportOrders,
   initStorage, addCustomer, getAll, STORAGE_KEYS,
-  recordSale, getProductStock, getEffectivePrice,
+  recordSale, getProductStock, getEffectivePrice, getLatestStockStatus,
   ORDER_STATUSES, updateOrderStatus, updateOrderItemStatus,
   updateOrderNumber, getRenewalDaysLeft, getOrdersNeedingRenewal,
   updateOrderItems, voidOrder, recordReturn, getOrderReturns, getOrderAuditLog,
@@ -160,10 +161,12 @@ function refresh() {
   // حفظ اللي المستخدم كان بيعمله قبل إعادة الرسم (اختيار العميل/المندوب، أرقام الطلبيات، الأصناف المفتوحة)
   const sel = ['s_customer', 's_rep'].map(id => [id, document.getElementById(id).value]);
   const nums = Array.from(document.querySelectorAll('.ord-number-input')).map(i => [i.dataset.id, i.value]);
+  const invNums = Array.from(document.querySelectorAll('.inv-number-input')).map(i => [i.dataset.id, i.value]);
   const open = Array.from(document.querySelectorAll('.items-detail-row')).filter(r => r.style.display === 'table-row').map(r => r.id);
   refreshCore();
   sel.forEach(([id, v]) => { const el = document.getElementById(id); if (v && Array.from(el.options).some(o => o.value === v)) el.value = v; });
   nums.forEach(([id, v]) => { const i = document.querySelector(`.ord-number-input[data-id="${id}"]`); if (i && v !== i.defaultValue) i.value = v; });
+  invNums.forEach(([id, v]) => { const i = document.querySelector(`.inv-number-input[data-id="${id}"]`); if (i && v !== i.defaultValue) i.value = v; });
   open.forEach(id => { const r = document.getElementById(id); if (r) r.style.display = 'table-row'; });
   updateSaleTotals();
 }
@@ -211,16 +214,27 @@ function addLineItemRow(preset = null) {
     <select class="line-product">${products.map(p => `<option value="${p.id}" data-stock="${getProductStock(p.id)}" ${preset && preset.productId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     <input type="number" class="line-qty" placeholder="الكمية" min="1" value="${preset ? preset.qty : 1}" required>
     <input type="number" class="line-price" placeholder="السعر" min="0" required>
+    <span class="line-avail muted" style="white-space:nowrap; font-size:12px;"></span>
     <button type="button" class="secondary" data-remove="${id}">×</button>`;
   document.getElementById('lineItems').appendChild(div);
 
   const productSelect = div.querySelector('.line-product');
   const priceInput = div.querySelector('.line-price');
-  const fillPrice = () => { priceInput.value = getEffectivePrice(productSelect.value) || 0; updateSaleTotals(); };
+  const qtyInput = div.querySelector('.line-qty');
+  const availSpan = div.querySelector('.line-avail');
+  const updateAvail = () => {
+    const status = getLatestStockStatus(productSelect.value);
+    const remaining = status && status.remaining !== null && status.remaining !== undefined ? status.remaining : null;
+    const qty = Number(qtyInput.value) || 0;
+    if (remaining === null) { availSpan.textContent = ''; return; }
+    const over = qty > remaining;
+    availSpan.innerHTML = `المتاح (الساب): <b style="color:${remaining < 0 ? 'var(--danger)' : (over ? 'var(--warn-border, #B8862E)' : 'var(--ok, #12B886)')}">${remaining}</b>${over ? ' ⚠ أكتر من المتاح' : ''}`;
+  };
+  const fillPrice = () => { priceInput.value = getEffectivePrice(productSelect.value) || 0; updateAvail(); updateSaleTotals(); };
   fillPrice();
   productSelect.addEventListener('change', fillPrice);
   priceInput.addEventListener('input', updateSaleTotals);
-  div.querySelector('.line-qty').addEventListener('input', updateSaleTotals);
+  qtyInput.addEventListener('input', () => { updateAvail(); updateSaleTotals(); });
   div.querySelector('[data-remove]').addEventListener('click', () => { div.remove(); updateSaleTotals(); });
 }
 
@@ -398,7 +412,16 @@ function renderOrdersTable() {
 
     return `
       <tr>
-        <td>#${o.invoiceNo || '-'} ${esc(customer?.name || '(محذوف)')}<br><button class="toggle-items" data-toggle="${o.id}">الأصناف (${o.items.length}) ▾</button>${unconfirmedBadge}</td>
+        <td>
+          <div style="display:flex; align-items:center; gap:4px; margin-bottom:4px;">
+            <span class="muted" style="font-size:12px;">رقم الفاتورة:</span>
+            <input type="text" class="inv-number-input" data-id="${o.id}" value="${esc(o.invoiceNo || '')}" placeholder="رقم الفاتورة" style="width:90px; font-size:12px; padding:4px 6px;">
+            <button class="secondary" data-save-invoiceno="${o.id}" style="padding:3px 8px; font-size:11px;">حفظ</button>
+          </div>
+          <div>${esc(customer?.name || '(محذوف)')}</div>
+          ${customer?.code ? `<div class="muted" style="display:flex; align-items:center; gap:4px; font-size:12px; margin-top:2px;"><span dir="ltr">${esc(customer.code)}</span><button class="secondary" data-copy-phone="${esc(customer.code)}" style="padding:1px 6px; font-size:11px;" title="نسخ كود العميل">📋</button></div>` : ''}
+          <button class="toggle-items" data-toggle="${o.id}">الأصناف (${o.items.length}) ▾</button>${unconfirmedBadge}
+        </td>
         <td>${new Date(o.date).toLocaleDateString('ar-EG')}</td>
         <td>
           <div class="order-number-cell">
@@ -556,6 +579,15 @@ function renderOrdersTable() {
     updateOrderNumber(id, val);
     refresh();
   }));
+  tbody.querySelectorAll('[data-save-invoiceno]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.saveInvoiceno;
+    const input = tbody.querySelector(`.inv-number-input[data-id="${id}"]`);
+    const val = input.value.trim();
+    if (!val) { alert('أدخل رقم الفاتورة'); return; }
+    updateRecord(STORAGE_KEYS.SALES_ORDERS, id, { invoiceNo: val });
+    refresh();
+  }));
+  tbody.querySelectorAll('[data-copy-phone]').forEach(btn => btn.addEventListener('click', () => copyToClipboard(btn.dataset.copyPhone)));
 }
 
 document.getElementById('btnNewMonth').addEventListener('click', () => {

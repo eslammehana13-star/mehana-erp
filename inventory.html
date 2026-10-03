@@ -51,6 +51,7 @@
   <a href="index.html">🏠 الرئيسية</a>
   <a href="inventory.html" class="active">📦 المخزون</a>
   <a href="customers.html">💰 العملاء</a>
+  <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html">📄 الفواتير</a>
   <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
@@ -122,8 +123,15 @@
 </div>
 
 <div class="card">
+  <h2>🔄 تحديث ATP والكمية الجاية (ملف دوري من الساب)</h2>
+  <p class="muted">كل ما يوصلك ملف جديد (كل يومين تقريباً): انسخ الأعمدة بالترتيب PXX ← VIB (كود الموديل) ← Type ← Incoming ← ATP ← Orders ← Remaining Qty، والصق هنا. المطابقة بكود الموديل (VIB) مع عمود "الكود" عندك، فلازم تكون الأكواد متطابقة.</p>
+  <textarea id="updStockStatus" rows="5" placeholder="الصق هنا ملف الـ ATP كامل (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnUpdStockStatus" style="margin-top:8px;">🔄 تحديث</button>
+</div>
+
+<div class="card">
   <div class="toolbar">
-    <h2>تحديث ATP والكمية الجاية (Incoming)</h2>
+    <h2>تحديث يدوي لصنف واحد (ATP / الكمية الجاية)</h2>
   </div>
   <p class="muted">الأرقام دي بتيجيلك من المصنع/المخزن المركزي وممكن تتحدث أكتر من مرة في الشهر — كل تحديث بيتسجل بتاريخه.</p>
   <form id="statusForm">
@@ -146,7 +154,7 @@
   </div>
   <table>
     <thead>
-      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th>الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الكمية الجاية</th><th>آخر تحديث</th><th>إجراءات</th></tr>
+      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th>الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الجاية</th><th>الطلبيات المحجوزة</th><th>المتاح (Remaining)</th><th>آخر تحديث</th><th>إجراءات</th></tr>
     </thead>
     <tbody id="productsTable"></tbody>
   </table>
@@ -158,7 +166,7 @@ import {
   esc, inPeriod, getReportOrders, importProducts,
   initStorage, addProduct, getAll, STORAGE_KEYS,
   getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
-  addStockStatusUpdate, getLatestStockStatus,
+  addStockStatusUpdate, importStockStatus, getLatestStockStatus,
   setProductOffer, clearProductOffer, getEffectivePrice,
   deleteRecord, updateRecord, downloadBackup, importBackup,
 } from './erp-data-layer.js';
@@ -195,6 +203,9 @@ function renderProductsTable() {
     const status = getLatestStockStatus(p.id);
     const atpDisplay = status && status.atp !== null ? status.atp : '-';
     const incomingDisplay = status && status.incoming !== null ? status.incoming : '-';
+    const ordersDisplay = status && status.orders !== null && status.orders !== undefined ? status.orders : '-';
+    const remaining = status && status.remaining !== null && status.remaining !== undefined ? status.remaining : null;
+    const remainingDisplay = remaining === null ? '-' : `<span class="${remaining < 0 ? 'low' : ''}">${remaining}</span>`;
     const lastUpdate = status ? new Date(status.date).toLocaleDateString('ar-EG') : '-';
 
     if (editingProductId === p.id) {
@@ -212,6 +223,8 @@ function renderProductsTable() {
         </td>
         <td>${atpDisplay}</td>
         <td>${incomingDisplay}</td>
+        <td>${ordersDisplay}</td>
+        <td>${remainingDisplay}</td>
         <td class="muted">${lastUpdate}</td>
         <td class="row-actions">
           <button data-save-edit="${p.id}">حفظ</button>
@@ -235,6 +248,8 @@ function renderProductsTable() {
         <td>${priceCell}</td>
         <td>${atpDisplay}</td>
         <td>${incomingDisplay}</td>
+        <td>${ordersDisplay}</td>
+        <td>${remainingDisplay}</td>
         <td class="muted">${lastUpdate}</td>
         <td class="row-actions">
           <button class="secondary" data-edit="${p.id}">تعديل</button>
@@ -392,6 +407,18 @@ document.getElementById('btnUpdPrices').addEventListener('click', () => {
   let msg = `تم تحديث ${r.updated} منتج (${r.priceChanges.length} منهم اتغيّر سعره) وإضافة ${r.added} منتج جديد ✅`;
   if (r.withOffer.length) msg += `\n⚠ ${r.withOffer.length} منتج عليه عرض شغال لسه سعر العرض زي ما هو — راجعه: ${r.withOffer.slice(0, 8).join('، ')}`;
   if (r.missing.length) msg += `\nℹ ${r.missing.length} منتج عندك مش موجود في القايمة الجديدة (يمكن اتوقف): ${r.missing.slice(0, 8).join('، ')}`;
+  alert(msg);
+});
+
+document.getElementById('btnUpdStockStatus').addEventListener('click', () => {
+  const box = document.getElementById('updStockStatus');
+  if (!box.value.trim()) { alert('الصق الملف الأول'); return; }
+  const r = importStockStatus(box.value);
+  box.value = '';
+  refresh();
+  let msg = `تم تحديث ${r.updated} صنف ✅`;
+  if (r.negative.length) msg += `\n🔴 ${r.negative.length} صنف Backorder (المتاح أقل من صفر): ${r.negative.slice(0, 8).map(n => `${n.sku} (${n.remaining})`).join('، ')}`;
+  if (r.notFound.length) msg += `\n⚠ ${r.notFound.length} كود مش موجود عندك بالمخزون: ${r.notFound.slice(0, 8).join('، ')}`;
   alert(msg);
 });
 
