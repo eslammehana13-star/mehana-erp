@@ -602,6 +602,76 @@ function recordSale({ customerId, items, repId = null, discountRate: requestedRa
   return order;
 }
 
+/**
+ * استيراد أوردرات تاريخية بالتفصيل الكامل (من تصدير الساب).
+ * الأعمدة بالترتيب: Document Date (YYYY-MM-DD) | Sales Document | Sold-to Party (كود العميل)
+ *   | Material (كود الصنف) | Material Description | Order Quantity | Net Price (سعر الوحدة صافي بعد الضريبة) | Delivery Status
+ *
+ * - بتتجمّع الأسطر اللي عندها نفس "Sales Document" في طلبية واحدة.
+ * - الطلبية بتتسجل مؤرشفة (archived) من غير أي تأثير على المخزون الحالي — الكمية دي خرجت من زمان.
+ * - حماية من التكرار: أي "Sales Document" موجود أصلاً برقم طلبية (orderNumber) في النظام بيتخطى.
+ * - Net Price بيتضرب × (1 + vatRate/100) عشان يتسق مع تسعير النظام (سعر لست شامل الضريبة)،
+ *   ليتوافق مع خصم الضريبة اللي بيتطبق وقت حساب التارجت والـ KPIs.
+ * - حالة التسليم: Completed → delivered | Not Delivered → confirmed | Partially Delivered → release
+ *   | أي قيمة تانية غير معروفة → confirmed (افتراضي آمن). صف الطلبية اللي كل بنودها Not Relevant بيتستبعد بالكامل.
+ * - الصنف اللي كوده مش موجود في الكتالوج الحالي بيتسجّل تلقائياً كمنتج "مؤرشف" (بسعر الاستيراد كسعر مبدئي)
+ *   عشان القيمة متضيعش، وبيترجع في autoCreatedProducts عشان تراجعه.
+ */
+function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14 } = {}) {
+  const STATUS_MAP = { Completed: 'delivered', 'Not Delivered': 'confirmed', 'Partially Delivered': 'release' };
+  const existingOrderNumbers = new Set(getAll(STORAGE_KEYS.SALES_ORDERS).map((o) => String(o.orderNumber || '').trim()).filter(Boolean));
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const customerByCode = new Map(customers.filter((c) => c.code).map((c) => [String(c.code).trim(), c]));
+  let products = getAll(STORAGE_KEYS.PRODUCTS);
+  const productBySku = new Map(products.filter((p) => p.sku).map((p) => [String(p.sku).trim().toLowerCase(), p]));
+
+  const res = { imported: 0, skippedDuplicate: 0, skippedCustomerNotFound: [], autoCreatedProducts: [], totalValue: 0 };
+
+  // تجميع الأسطر في طلبيات بحسب رقم الـ Sales Document
+  const groups = new Map();
+  parseRows(text).forEach(([dateStr, salesDoc, custCode, material, materialDesc, qty, netPrice, status]) => {
+    if (!salesDoc || salesDoc.trim().toLowerCase() === 'sales document') return; // تخطي صف العناوين
+    salesDoc = salesDoc.trim();
+    if (cutoffDate && dateStr && dateStr.trim() > cutoffDate) return;
+    if (!groups.has(salesDoc)) groups.set(salesDoc, []);
+    groups.get(salesDoc).push({ date: (dateStr || '').trim(), custCode: (custCode || '').trim(), material: (material || '').trim(), materialDesc: (materialDesc || '').trim(), qty: toNum(qty), netPrice: toNum(netPrice), status: (status || '').trim() });
+  });
+
+  groups.forEach((lines, salesDoc) => {
+    if (existingOrderNumbers.has(salesDoc)) { res.skippedDuplicate++; return; }
+    const relevant = lines.filter((l) => l.status !== 'Not Relevant');
+    if (relevant.length === 0) return; // طلبية كل بنودها Not Relevant، متسجلش حاجة
+
+    const customer = customerByCode.get(relevant[0].custCode);
+    if (!customer) { res.skippedCustomerNotFound.push(`${salesDoc} (كود ${relevant[0].custCode})`); return; }
+
+    const items = relevant.map((l) => {
+      let product = productBySku.get(l.material.toLowerCase());
+      const unitPrice = Math.round(l.netPrice * (1 + vatRate / 100) * 100) / 100;
+      if (!product) {
+        product = addProduct({ name: l.materialDesc || l.material, sku: l.material, category: 'مؤرشف | غير موجود في القايمة الحالية', basePrice: unitPrice, openingStock: 0, reorderLevel: 0, description: 'نشأ تلقائياً من استيراد أوردرات تاريخية' });
+        productBySku.set(l.material.toLowerCase(), product);
+        res.autoCreatedProducts.push(`${l.material} — ${l.materialDesc || l.material}`);
+      }
+      return { productId: product.id, qty: l.qty, unitPrice, listPriceAtSale: unitPrice, status: STATUS_MAP[l.status] || 'confirmed' };
+    });
+
+    const subtotal = items.reduce((s, i) => s + i.qty * i.unitPrice, 0);
+    const orderStatus = items.every((i) => i.status === 'delivered') ? 'delivered' : 'confirmed';
+    const order = addRecord(STORAGE_KEYS.SALES_ORDERS, {
+      customerId: customer.id, repId: null, items, subtotal, cashDiscount: false, discountRate: 0, discountAmount: 0, total: subtotal,
+      date: relevant[0].date, invoiceNo: salesDoc, orderNumber: salesDoc, sentByEmail: false, orderNumberUpdatedAt: relevant[0].date,
+      archived: true, status: orderStatus, historicalImport: true,
+    });
+    if (!order) return;
+    existingOrderNumbers.add(salesDoc);
+    res.imported++;
+    res.totalValue += subtotal;
+  });
+
+  return res;
+}
+
 /** الحالات المسموحة لأي طلبية أو صنف جواها */
 const ORDER_STATUSES = ['unconfirmed', 'confirmed', 'release', 'delivered'];
 
@@ -927,11 +997,15 @@ function addRep({ name, phone = '' }) {
  * entityType: 'customer' | 'rep'
  * period: مثال '2026-09' (شهري) أو '2026' (سنوي)
  */
-function setTarget({ entityType, entityId, period, targetAmount, commissionRate = 0 }) {
-  return addRecord(STORAGE_KEYS.TARGETS, { entityType, entityId, period, targetAmount, commissionRate });
+function setTarget({ entityType, entityId, period, targetAmount, commissionRate = 0, vatRate = 14 }) {
+  return addRecord(STORAGE_KEYS.TARGETS, { entityType, entityId, period, targetAmount, commissionRate, vatRate: Number(vatRate) || 0 });
 }
 
-/** الإنجاز الفعلي = مجموع المبيعات لنفس الكيان في نفس الفترة */
+/**
+ * الإنجاز الفعلي = مجموع المبيعات لنفس الكيان في نفس الفترة، بعد استخراج ضريبة
+ * القيمة المضافة من سعر اللست (القيمة ÷ (1 + vatRate/100))، عشان "المحقق" يبقى
+ * صافي القيمة الحقيقية مش شامل الضريبة. لو target.vatRate = 0 مفيش استخراج خالص.
+ */
 function getTargetProgress(targetId) {
   const target = getAll(STORAGE_KEYS.TARGETS).find((t) => t.id === targetId);
   if (!target) return null;
@@ -939,7 +1013,8 @@ function getTargetProgress(targetId) {
   const mine = getReportOrders().filter((o) => (target.entityType === 'customer' ? o.customerId : o.repId) === target.entityId);
   const ids = new Set(mine.map((o) => o.id));
   const returnsVal = validReturns().filter((r) => ids.has(r.orderId) && inPeriod(r.date, target.period)).reduce((s, r) => s + r.totalValue, 0);
-  const achieved = mine.filter((o) => inPeriod(o.date, target.period)).reduce((sum, o) => sum + o.total, 0) - returnsVal;
+  const grossAchieved = mine.filter((o) => inPeriod(o.date, target.period)).reduce((sum, o) => sum + o.total, 0) - returnsVal;
+  const achieved = grossAchieved / (1 + (target.vatRate || 0) / 100);
 
   const percentage = target.targetAmount > 0 ? (achieved / target.targetAmount) * 100 : 0;
   const commission = achieved * (target.commissionRate / 100);
@@ -961,16 +1036,50 @@ function getTargetProgress(targetId) {
  * - 'category_count'  : إجمالي عدد القطع من تصنيف معيّن (زي بوتاجازات)
  * - 'active_dealers'  : عدد العملاء اللي وصلتهم طلبية واحدة (Delivered) على الأقل
  *
- * deductionPercent (اختياري، لأنواع القيمة بس): بينخصم من المحقق
- * قبل المقارنة بالهدف (زي خصم 14% على MDA).
+ * vatRate (لأنواع القيمة بس، افتراضي 14): بيتخصم كاستخراج ضريبة حقيقي
+ * (المحقق ÷ (1 + vatRate/100))، على اعتبار إن سعر اللست شامل الضريبة جواه.
+ * سيبه 0 لو مش عايز أي استخراج ضريبة لهذا الـ KPI.
+ * deductionPercent (اختياري، لأنواع القيمة بس، بيتطبق بعد الضريبة): خصم إضافي
+ * بسيط بالنسبة المئوية فوق الصافي (زي خصم ترويجي أو تحفظي إضافي، مش ضريبة).
  * onlyDelivered (اختياري): يحسب بس من الطلبيات اللي حالتها Delivered.
  */
-function addKpi({ period, name, metricType, category = null, weight, targetValue, deductionPercent = 0, onlyDelivered = false }) {
-  return addRecord(STORAGE_KEYS.KPIS, { period, name, metricType, category, weight, targetValue, deductionPercent, onlyDelivered });
+function addKpi({ period, name, metricType, category = null, weight, targetValue, deductionPercent = 0, onlyDelivered = false, minFamilies = 4, vatRate = 14 }) {
+  return addRecord(STORAGE_KEYS.KPIS, { period, name, metricType, category, weight, targetValue, deductionPercent, onlyDelivered, minFamilies: Math.max(Number(minFamilies) || 4, 4), vatRate: Number(vatRate) || 0 });
 }
 
 /** التصنيف ممكن يكون أكتر من وسم بينهم | مثلاً: MDA | بوتاجازات — الـ KPI بيطابق أي وسم منهم */
 function hasCat(cat, k) { return String(cat || '').split('|').map((x) => x.trim()).includes(String(k || '').trim()); }
+
+/** أدق تصنيف فرعي (الفاميلي) من سلسلة التصنيف، مع تجاهل علامة "Traditional" */
+function productFamily(category) {
+  const parts = String(category || '').split('|').map((x) => x.trim()).filter((x) => x && x !== 'Traditional');
+  return parts.length ? parts[parts.length - 1] : 'بدون تصنيف';
+}
+
+/**
+ * White Space: العملاء اللي اشتروا من كذا فاميلي أو أكتر (kpi.minFamilies، أقل حد 4) في الفترة.
+ * بيرجّع تفاصيل كل عميل (الاسم وعدد الفاميلي) مش رقم بس، عشان تقدر تشوف الأسماء تحت الـ KPI.
+ */
+function getWhiteSpaceDetail(kpi) {
+  const orders = getReportOrders().filter((o) => inPeriod(o.date, kpi.period));
+  const relevantOrders = kpi.onlyDelivered ? orders.filter((o) => o.status === 'delivered') : orders;
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const min = Math.max(kpi.minFamilies || 4, 4);
+  const byCustomer = new Map();
+  relevantOrders.forEach((o) => {
+    if (!byCustomer.has(o.customerId)) byCustomer.set(o.customerId, new Set());
+    const fams = byCustomer.get(o.customerId);
+    o.items.forEach((it) => {
+      const p = products.find((pp) => pp.id === it.productId);
+      if (p) fams.add(productFamily(p.category));
+    });
+  });
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  return [...byCustomer.entries()]
+    .filter(([, fams]) => fams.size >= min)
+    .map(([customerId, fams]) => ({ customerId, name: customers.find((c) => c.id === customerId)?.name || '(محذوف)', familyCount: fams.size, families: [...fams] }))
+    .sort((a, b) => b.familyCount - a.familyCount);
+}
 
 function computeKpiAchieved(kpi) {
   const orders = getReportOrders().filter((o) => inPeriod(o.date, kpi.period));
@@ -991,12 +1100,18 @@ function computeKpiAchieved(kpi) {
     return new Set(delivered.map((o) => o.customerId)).size;
   }
 
+  if (kpi.metricType === 'white_space_dealers') {
+    return getWhiteSpaceDetail(kpi).length;
+  }
+
   const filteredOrders = kpi.onlyDelivered ? orders.filter((o) => o.status === 'delivered') : orders;
 
   if (kpi.metricType === 'total_value') {
     const raw = filteredOrders.reduce((sum, o) => sum + o.total, 0);
     const returnsValue = periodReturns.reduce((sum, r) => sum + r.totalValue, 0);
-    return (raw - returnsValue) * (1 - (kpi.deductionPercent || 0) / 100);
+    const net = raw - returnsValue;
+    const afterVat = net / (1 + (kpi.vatRate || 0) / 100);
+    return afterVat * (1 - (kpi.deductionPercent || 0) / 100);
   }
 
   if (kpi.metricType === 'category_value' || kpi.metricType === 'category_count') {
@@ -1022,7 +1137,9 @@ function computeKpiAchieved(kpi) {
         }
       });
     });
-    return kpi.metricType === 'category_value' ? sum * (1 - (kpi.deductionPercent || 0) / 100) : sum;
+    if (kpi.metricType !== 'category_value') return sum;
+    const afterVat = sum / (1 + (kpi.vatRate || 0) / 100);
+    return afterVat * (1 - (kpi.deductionPercent || 0) / 100);
   }
 
   return 0;
@@ -1034,7 +1151,8 @@ function getKpiProgress(kpiId) {
   const achieved = computeKpiAchieved(kpi);
   const percentage = kpi.targetValue > 0 ? (achieved / kpi.targetValue) * 100 : 0;
   const weightedScore = (percentage / 100) * kpi.weight;
-  return { ...kpi, achieved, percentage: Math.round(percentage * 100) / 100, weightedScore: Math.round(weightedScore * 100) / 100 };
+  const whiteSpaceCustomers = kpi.metricType === 'white_space_dealers' ? getWhiteSpaceDetail(kpi) : null;
+  return { ...kpi, achieved, percentage: Math.round(percentage * 100) / 100, weightedScore: Math.round(weightedScore * 100) / 100, whiteSpaceCustomers };
 }
 
 /** كل KPIs شهر معيّن + الدرجة الكلية المرجّحة (مجموع كل KPI × نسبة وزنه) */
@@ -1119,13 +1237,13 @@ export {
   updateOrderItems, voidOrder,
   recordReturn, getOrderReturns,
   getOrderAuditLog,
-  getActiveOrders, getReportOrders, startNewMonth, esc, inPeriod,
+  getActiveOrders, getReportOrders, startNewMonth, esc, inPeriod, importHistoricalOrders,
   // شيكات
   updateCheckDelivery, markCheckCleared, markCheckBounced, getChecksDueSoon,
   // أهداف
   setTarget, getTargetProgress,
   // التارجت الشهري (KPIs)
-  addKpi, getKpiProgress, getMonthlyScorecard,
+  addKpi, getKpiProgress, getMonthlyScorecard, productFamily,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
 };

@@ -66,12 +66,18 @@
       <option value="category_value">قيمة تصنيف معيّن</option>
       <option value="category_count">عدد قطع تصنيف معيّن</option>
       <option value="active_dealers">عدد العملاء النشطين (Delivered)</option>
+      <option value="white_space_dealers">White Space (عملاء اشتروا كذا فاميلي أو أكتر)</option>
     </select>
     <input type="text" id="kpi_category" placeholder="التصنيف (لو النوع تصنيف)" list="categoryList">
     <datalist id="categoryList"></datalist>
+    <input type="number" id="kpi_minfamilies" placeholder="كام فاميلي أو أكتر (White Space، أقل حد 4)" min="4" value="4">
     <input type="number" id="kpi_weight" placeholder="نسبة الوزن %" min="0" max="100" step="0.5" required>
     <input type="number" id="kpi_target" placeholder="قيمة الهدف" min="1" required>
-    <input type="number" id="kpi_deduction" placeholder="نسبة خصم %  (اختياري)" min="0" max="100" step="0.5" value="0">
+    <label style="display:flex; align-items:center; gap:6px; font-size:14px;" title="للـ KPIs المالية بس (إجمالي قيمة / قيمة تصنيف) — بيستخرج الضريبة من سعر اللست قبل المقارنة بالهدف">
+      ضريبة % (للقيم المالية)
+      <input type="number" id="kpi_vat" min="0" max="100" step="0.5" value="14" style="width:70px;">
+    </label>
+    <input type="number" id="kpi_deduction" placeholder="خصم إضافي %  (اختياري، بعد الضريبة)" min="0" max="100" step="0.5" value="0">
     <label style="display:flex; align-items:center; gap:6px; font-size:14px;">
       <input type="checkbox" id="kpi_onlyDelivered" style="flex:none; width:auto;"> Delivered بس
     </label>
@@ -112,6 +118,10 @@
     <input type="month" id="tg_period" required>
     <input type="number" id="tg_amount" placeholder="قيمة الهدف" min="1" required>
     <input type="number" id="tg_commission" placeholder="نسبة العمولة %" min="0" step="0.5" value="0">
+    <label style="display:flex; align-items:center; gap:6px; font-size:14px;" title="بيستخرج الضريبة من سعر اللست قبل المقارنة بالهدف وحساب العمولة">
+      ضريبة %
+      <input type="number" id="tg_vat" min="0" max="100" step="0.5" value="14" style="width:70px;">
+    </label>
     <button type="submit">حفظ الهدف</button>
   </form>
 </div>
@@ -148,6 +158,7 @@ const KPI_TYPE_LABELS = {
   category_value: 'قيمة تصنيف',
   category_count: 'عدد قطع تصنيف',
   active_dealers: 'عملاء نشطين',
+  white_space_dealers: 'White Space',
 };
 
 initStorage();
@@ -196,7 +207,7 @@ function renderTargetsTable() {
         <td>${entityName(t.entityType, t.entityId)}</td>
         <td>${t.entityType === 'rep' ? 'مندوب' : 'عميل'}</td>
         <td>${t.period}</td>
-        <td>${t.targetAmount.toLocaleString()}</td>
+        <td>${t.targetAmount.toLocaleString()}${t.vatRate ? ` <span class="muted">(صافي بعد ${t.vatRate}%)</span>` : ''}</td>
         <td>${p.achieved.toLocaleString()}</td>
         <td>
           <div class="progress-wrap">
@@ -226,6 +237,11 @@ document.getElementById('kpiForm').addEventListener('submit', (e) => {
     alert('حدد التصنيف لهذا النوع من الـ KPI');
     return;
   }
+  const minFamilies = Number(document.getElementById('kpi_minfamilies').value) || 4;
+  if (metricType === 'white_space_dealers' && minFamilies < 4) {
+    alert('أقل حد مسموح به هو "أكتر من 4 فاميلي"');
+    return;
+  }
   addKpi({
     period: document.getElementById('kpi_period').value,
     name: document.getElementById('kpi_name').value.trim(),
@@ -235,6 +251,8 @@ document.getElementById('kpiForm').addEventListener('submit', (e) => {
     targetValue: Number(document.getElementById('kpi_target').value),
     deductionPercent: Number(document.getElementById('kpi_deduction').value) || 0,
     onlyDelivered: document.getElementById('kpi_onlyDelivered').checked,
+    minFamilies,
+    vatRate: Number(document.getElementById('kpi_vat').value) || 0,
   });
   e.target.reset();
   document.getElementById('kpi_period').value = document.getElementById('scorecard_period').value;
@@ -255,7 +273,7 @@ function renderScorecard() {
     return `
       <tr>
         <td>${esc(k.name)}${k.category ? ` <span class="muted">(${esc(k.category)})</span>` : ''}</td>
-        <td>${KPI_TYPE_LABELS[k.metricType] || k.metricType}</td>
+        <td>${KPI_TYPE_LABELS[k.metricType] || k.metricType}${(k.metricType === 'total_value' || k.metricType === 'category_value') && k.vatRate ? ` <span class="muted">(صافي بعد ${k.vatRate}% ضريبة)</span>` : ''}</td>
         <td>${k.targetValue.toLocaleString()}</td>
         <td>${k.achieved.toLocaleString()}</td>
         <td>${k.weight}%</td>
@@ -267,7 +285,17 @@ function renderScorecard() {
         </td>
         <td>${k.weightedScore}%</td>
         <td class="row-actions"><button class="danger" data-del-kpi="${k.id}">حذف</button></td>
-      </tr>`;
+      </tr>
+      ${k.metricType === 'white_space_dealers' && k.whiteSpaceCustomers && k.whiteSpaceCustomers.length ? `
+      <tr>
+        <td colspan="8" style="padding-top:0;">
+          <div class="muted" style="font-size:12.5px;">
+            🏆 حققوها (${k.minFamilies || 4} فاميلي أو أكتر): ${k.whiteSpaceCustomers.map(c => `${esc(c.name)} (${c.familyCount})`).join('، ')}
+          </div>
+        </td>
+      </tr>` : ''}
+      ${k.metricType === 'white_space_dealers' && (!k.whiteSpaceCustomers || k.whiteSpaceCustomers.length === 0) ? `
+      <tr><td colspan="8" style="padding-top:0;"><div class="muted" style="font-size:12.5px;">لسه مفيش عميل حققها الشهر ده.</div></td></tr>` : ''}`;
   }).join('');
 
   tbody.querySelectorAll('[data-del-kpi]').forEach(btn => btn.addEventListener('click', () => {
@@ -304,9 +332,11 @@ document.getElementById('targetForm').addEventListener('submit', (e) => {
     period: document.getElementById('tg_period').value, // YYYY-MM
     targetAmount: Number(document.getElementById('tg_amount').value),
     commissionRate: Number(document.getElementById('tg_commission').value) || 0,
+    vatRate: Number(document.getElementById('tg_vat').value) || 0,
   });
   document.getElementById('tg_amount').value = '';
   document.getElementById('tg_commission').value = '0';
+  document.getElementById('tg_vat').value = '14';
   refresh();
 });
 

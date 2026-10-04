@@ -141,6 +141,27 @@
   <p class="muted" id="ordersEmpty" style="display:none">لا توجد فواتير بعد.</p>
 </div>
 
+<div class="card">
+  <details>
+    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">📥 استيراد أوردرات تاريخية (مرة واحدة من ملف الساب)</summary>
+    <div style="margin-top:12px;">
+      <p class="muted">للاستيراد التاريخي بالتفصيل الكامل بس (مش للاستخدام اليومي). الأعمدة بالترتيب: Document Date (YYYY-MM-DD) ← Sales Document ← Sold-to Party ← Material ← Material Description ← Order Quantity ← Net Price ← Delivery Status. كل الأسطر اللي عندها نفس رقم الـ Sales Document بتتجمّع في طلبية واحدة، وبتتسجل مؤرشفة من غير ما تأثر على المخزون الحالي. أي رقم Sales Document موجود أصلاً بيتخطى تلقائياً (حماية من التكرار).</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">
+          استورد لحد تاريخ (اختياري)
+          <input type="date" id="histCutoff" style="width:150px;">
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">
+          ضريبة % (لتحويل Net Price لسعر شامل الضريبة)
+          <input type="number" id="histVat" value="14" min="0" max="100" step="0.5" style="width:70px;">
+        </label>
+      </div>
+      <textarea id="histOrders" rows="6" placeholder="الصق هنا بيانات الأوردرات التاريخية كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
+      <button type="button" id="btnImportHistorical" style="margin-top:8px;">📥 استيراد الأوردرات التاريخية</button>
+    </div>
+  </details>
+</div>
+
 <div class="modal-overlay" id="itemsModalOverlay">
   <div class="modal-box">
     <div class="modal-box-header">
@@ -160,14 +181,8 @@ import {
   updateOrderNumber, getRenewalDaysLeft, getOrdersNeedingRenewal,
   updateOrderItems, voidOrder, recordReturn, getOrderReturns, getOrderAuditLog,
   getActiveOrders, startNewMonth,
-  updateRecord, downloadBackup, importBackup,
+  updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders,
 } from './erp-data-layer.js';
-
-/** أدق تصنيف فرعي (الفاميلي) من سلسلة التصنيف، مع تجاهل علامة "Traditional" */
-function productFamily(category) {
-  const parts = String(category || '').split('|').map(x => x.trim()).filter(x => x && x !== 'Traditional');
-  return parts.length ? parts[parts.length - 1] : 'بدون تصنيف';
-}
 
 /** قايمة اختيار أصناف مقسّمة بالفاميلي (optgroup) ومعاها السعر في كل صنف */
 function productOptionsHtml(products, { selectedId = null, priceFn = (p) => p.basePrice } = {}) {
@@ -748,6 +763,22 @@ function exportOrderExcel(orderId) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+document.getElementById('btnImportHistorical').addEventListener('click', () => {
+  const box = document.getElementById('histOrders');
+  if (!box.value.trim()) { alert('الصق بيانات الأوردرات الأول'); return; }
+  const cutoff = document.getElementById('histCutoff').value || null;
+  const vatRate = Number(document.getElementById('histVat').value) || 0;
+  if (!confirm('تأكيد استيراد الأوردرات التاريخية؟ العملية دي بتتجمع (مش بتلغي القديم) ومينفعش تتراجع فيها غير بنسخة احتياطية.')) return;
+  const r = importHistoricalOrders(box.value, { cutoffDate: cutoff, vatRate });
+  refresh();
+  let msg = `تم استيراد ${r.imported} طلبية ✅ (إجمالي ${r.totalValue.toLocaleString()} ج.م شامل الضريبة)`;
+  if (r.skippedDuplicate) msg += `\nتم تخطي ${r.skippedDuplicate} طلبية موجودة أصلاً (رقمها متكرر)`;
+  if (r.skippedCustomerNotFound.length) msg += `\n⚠ ${r.skippedCustomerNotFound.length} طلبية اتخطّت لعدم وجود كود العميل: ${r.skippedCustomerNotFound.slice(0, 10).join('، ')}`;
+  if (r.autoCreatedProducts.length) msg += `\nℹ️ ${r.autoCreatedProducts.length} صنف اتسجل تلقائياً لأنه مش في الكتالوج الحالي (راجعهم من صفحة المخزون، تصنيف "مؤرشف"): ${r.autoCreatedProducts.slice(0, 10).join('، ')}`;
+  alert(msg);
+  box.value = '';
+});
 
 document.getElementById('btnExport').addEventListener('click', downloadBackup);
 document.getElementById('btnImport').addEventListener('click', () => document.getElementById('importFile').click());
