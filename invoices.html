@@ -80,6 +80,7 @@
   <a href="invoices.html" class="active">📄 الفواتير</a>
   <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
+  <a href="analytics.html">📊 تحليل البيانات</a>
 </nav>
 
 <h1>📄 الفواتير</h1>
@@ -162,6 +163,26 @@
   </details>
 </div>
 
+<div class="card">
+  <details>
+    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">💰 استيراد كشف حساب تاريخي (رصيد افتتاحي + تحصيلات وحركات)</summary>
+    <div style="margin-top:12px;">
+      <p class="muted"><b>1) الرصيد الافتتاحي:</b> بيثبّت رصيد كل عميل في تاريخ معيّن (مرة واحدة). الأعمدة: كود العميل ← الرصيد الافتتاحي ← بتاريخ (YYYY-MM-DD).</p>
+      <textarea id="histOpening" rows="4" placeholder="الصق أرصدة افتتاحية" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
+      <button type="button" id="btnImportOpening" style="margin-top:8px;">📥 تثبيت الأرصدة الافتتاحية</button>
+
+      <p class="muted" style="margin-top:16px;"><b>2) حركات الكشف (تحصيل، إشعار دائن/مدين، ضرائب خصم... إلخ، عدا الفواتير):</b> الأعمدة: كود العميل ← التاريخ ← نوع الحركة ← المبلغ (موجب = يزوّد المديونية، سالب = يقلّلها) ← ملاحظة ← رقم المستند.</p>
+      <textarea id="histLedger" rows="5" placeholder="الصق حركات الكشف" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
+      <button type="button" id="btnImportLedger" style="margin-top:8px;">📥 استيراد حركات الكشف</button>
+
+      <p class="muted" style="margin-top:16px;"><b>3) تقرير المطابقة:</b> الصق أرقام جاهزة عندك (من الساب) عشان تتأكد إن رصيدنا مطابق. الأعمدة: كود العميل ← اسم العميل ← الرصيد المتوقع ← بتاريخ (YYYY-MM-DD).</p>
+      <textarea id="histReconcile" rows="5" placeholder="الصق أرقام المطابقة" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
+      <button type="button" class="secondary" id="btnReconcile" style="margin-top:8px;">🔍 قارن الأرصدة</button>
+      <div id="reconcileResult" style="margin-top:12px;"></div>
+    </div>
+  </details>
+</div>
+
 <div class="modal-overlay" id="itemsModalOverlay">
   <div class="modal-box">
     <div class="modal-box-header">
@@ -182,6 +203,7 @@ import {
   updateOrderItems, voidOrder, recordReturn, getOrderReturns, getOrderAuditLog,
   getActiveOrders, startNewMonth,
   updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders,
+  importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
 } from './erp-data-layer.js';
 
 /** قايمة اختيار أصناف مقسّمة بالفاميلي (optgroup) ومعاها السعر في كل صنف */
@@ -778,6 +800,47 @@ document.getElementById('btnImportHistorical').addEventListener('click', () => {
   if (r.autoCreatedProducts.length) msg += `\nℹ️ ${r.autoCreatedProducts.length} صنف اتسجل تلقائياً لأنه مش في الكتالوج الحالي (راجعهم من صفحة المخزون، تصنيف "مؤرشف"): ${r.autoCreatedProducts.slice(0, 10).join('، ')}`;
   alert(msg);
   box.value = '';
+});
+
+document.getElementById('btnImportOpening').addEventListener('click', () => {
+  const box = document.getElementById('histOpening');
+  if (!box.value.trim()) { alert('الصق الأرصدة الأول'); return; }
+  if (!confirm('تأكيد تثبيت الأرصدة الافتتاحية؟ العملية دي بتستبدل أي رصيد افتتاحي موجود فعلاً لنفس العملاء.')) return;
+  const r = importOpeningBalances(box.value);
+  refresh();
+  let msg = `تم تثبيت الرصيد الافتتاحي لـ ${r.updated} عميل ✅`;
+  if (r.notFound.length) msg += `\n⚠ ${r.notFound.length} كود مش موجود: ${r.notFound.slice(0, 10).join('، ')}`;
+  alert(msg);
+  box.value = '';
+});
+
+document.getElementById('btnImportLedger').addEventListener('click', () => {
+  const box = document.getElementById('histLedger');
+  if (!box.value.trim()) { alert('الصق حركات الكشف الأول'); return; }
+  const r = importLedgerAdjustments(box.value);
+  refresh();
+  let msg = `تم استيراد ${r.imported} حركة ✅`;
+  if (r.skippedDuplicate) msg += `\nتم تخطي ${r.skippedDuplicate} حركة مكررة`;
+  if (r.skippedCustomerNotFound.length) msg += `\n⚠ ${r.skippedCustomerNotFound.length} حركة اتخطّت لعدم وجود كود العميل: ${r.skippedCustomerNotFound.slice(0, 10).join('، ')}`;
+  alert(msg);
+  box.value = '';
+});
+
+document.getElementById('btnReconcile').addEventListener('click', () => {
+  const box = document.getElementById('histReconcile');
+  if (!box.value.trim()) { alert('الصق أرقام المطابقة الأول'); return; }
+  const rows = getReconciliationReport(box.value);
+  const resultBox = document.getElementById('reconcileResult');
+  const matched = rows.filter(r => r.found && Math.abs(r.diff) < 1);
+  const mismatched = rows.filter(r => r.found && Math.abs(r.diff) >= 1);
+  const notFound = rows.filter(r => !r.found);
+  resultBox.innerHTML = `
+    <p><b>مطابق تماماً:</b> ${matched.length} | <b>فيه فرق:</b> ${mismatched.length} | <b>كود مش موجود:</b> ${notFound.length}</p>
+    ${mismatched.length ? `<table><thead><tr><th>العميل</th><th>الكود</th><th>المتوقع</th><th>عندنا</th><th>الفرق</th></tr></thead><tbody>
+      ${mismatched.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.code)}</td><td>${r.expected.toLocaleString()}</td><td>${r.actual.toLocaleString()}</td><td style="color:var(--danger);font-weight:700;">${r.diff.toLocaleString()}</td></tr>`).join('')}
+    </tbody></table>` : '<p class="muted">✅ كل الأرصدة اللي اتقارنت مطابقة.</p>'}
+    ${notFound.length ? `<p class="muted">أكواد مش موجودة: ${notFound.map(r => r.code).join('، ')}</p>` : ''}
+  `;
 });
 
 document.getElementById('btnExport').addEventListener('click', downloadBackup);

@@ -30,6 +30,7 @@ const STORAGE_KEYS = {
   REPS: 'erp_sales_reps',
   STOCK_STATUS: 'erp_stock_status_log',
   DEALER_STOCK: 'erp_dealer_stock',
+  LEDGER_ADJUSTMENTS: 'erp_ledger_adjustments',
   SETTINGS: 'erp_settings',
   META: 'erp_meta', // آخر تحديث، رقم النسخة، إلخ
 };
@@ -151,7 +152,39 @@ function getCustomerBalance(customerId) {
     .filter((r) => r.customerId === customerId)
     .reduce((sum, r) => sum + r.totalValue, 0);
 
-  return customer.openingBalance + totalSales - totalReceipts - totalReturns;
+  const totalAdjustments = getAll(STORAGE_KEYS.LEDGER_ADJUSTMENTS)
+    .filter((a) => a.customerId === customerId)
+    .reduce((sum, a) => sum + a.amount, 0);
+
+  return customer.openingBalance + totalSales - totalReceipts - totalReturns + totalAdjustments;
+}
+
+/**
+ * رصيد العميل في تاريخ معيّن في الماضي (للمطابقة مع أرقام الساب التاريخية).
+ * بيبدأ من الرصيد الافتتاحي (بتاريخه المسجّل) ويجمع عليه كل حركة لحد وبما في ذلك التاريخ المطلوب.
+ */
+function getCustomerBalanceAsOf(customerId, asOfDate) {
+  const customer = getAll(STORAGE_KEYS.CUSTOMERS).find((c) => c.id === customerId);
+  if (!customer) return 0;
+  const cutoff = new Date(asOfDate);
+
+  const totalSales = getAll(STORAGE_KEYS.SALES_ORDERS)
+    .filter((o) => o.customerId === customerId && !o.voided && new Date(o.date) <= cutoff)
+    .reduce((sum, o) => sum + o.total, 0);
+
+  const totalReceipts = getAll(STORAGE_KEYS.RECEIPTS)
+    .filter((r) => r.customerId === customerId && !r.voided && new Date(r.date) <= cutoff)
+    .reduce((sum, r) => sum + r.amount, 0);
+
+  const totalReturns = validReturns()
+    .filter((r) => r.customerId === customerId && new Date(r.date) <= cutoff)
+    .reduce((sum, r) => sum + r.totalValue, 0);
+
+  const totalAdjustments = getAll(STORAGE_KEYS.LEDGER_ADJUSTMENTS)
+    .filter((a) => a.customerId === customerId && new Date(a.date) <= cutoff)
+    .reduce((sum, a) => sum + a.amount, 0);
+
+  return customer.openingBalance + totalSales - totalReceipts - totalReturns + totalAdjustments;
 }
 
 function getCustomerStatement(customerId) {
@@ -200,7 +233,11 @@ function getCustomerStatement(customerId) {
       return [{ date: r.date, type, debit: 0, credit: r.amount, ref: r.id }];
     });
 
-  const movements = [...sales, ...returns, ...receipts].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const adjustments = getAll(STORAGE_KEYS.LEDGER_ADJUSTMENTS)
+    .filter((a) => a.customerId === customerId)
+    .map((a) => ({ date: a.date, type: `${a.docType}${a.note ? ' - ' + a.note : ''}`, debit: a.amount > 0 ? a.amount : 0, credit: a.amount < 0 ? -a.amount : 0, ref: a.id }));
+
+  const movements = [...sales, ...returns, ...receipts, ...adjustments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   const openingRow = {
     date: customer ? openingDateOf(customer) : new Date(0).toISOString(),
@@ -424,15 +461,17 @@ function getAllCustomerBalances() {
   const sales = getAll(STORAGE_KEYS.SALES_ORDERS).filter((o) => !o.voided);
   const receipts = getAll(STORAGE_KEYS.RECEIPTS).filter((r) => !r.voided);
   const returns = validReturns();
+  const adjustments = getAll(STORAGE_KEYS.LEDGER_ADJUSTMENTS);
 
-  const salesMap = {}, receiptsMap = {}, returnsMap = {};
+  const salesMap = {}, receiptsMap = {}, returnsMap = {}, adjMap = {};
   sales.forEach((o) => { salesMap[o.customerId] = (salesMap[o.customerId] || 0) + o.total; });
   receipts.forEach((r) => { receiptsMap[r.customerId] = (receiptsMap[r.customerId] || 0) + r.amount; });
   returns.forEach((r) => { returnsMap[r.customerId] = (returnsMap[r.customerId] || 0) + r.totalValue; });
+  adjustments.forEach((a) => { adjMap[a.customerId] = (adjMap[a.customerId] || 0) + a.amount; });
 
   const map = {};
   customers.forEach((c) => {
-    map[c.id] = c.openingBalance + (salesMap[c.id] || 0) - (receiptsMap[c.id] || 0) - (returnsMap[c.id] || 0);
+    map[c.id] = c.openingBalance + (salesMap[c.id] || 0) - (receiptsMap[c.id] || 0) - (returnsMap[c.id] || 0) + (adjMap[c.id] || 0);
   });
   return map;
 }
@@ -670,6 +709,70 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14 } = {}) 
   });
 
   return res;
+}
+
+/**
+ * استيراد حركات كشف حساب تاريخية غير الفواتير (تحصيل، شيك مرتد، إشعار دائن/مدين، ضرائب خصم... إلخ).
+ * الأعمدة: كود العميل | التاريخ (YYYY-MM-DD) | نوع الحركة | المبلغ (موجب = زيادة مديونية، سالب = تخفيض) | ملاحظة | رقم المستند
+ * حماية من التكرار: نفس (العميل + التاريخ + النوع + المبلغ + رقم المستند) بيتخطى لو موجود.
+ */
+function importLedgerAdjustments(text) {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const customerByCode = new Map(customers.filter((c) => c.code).map((c) => [String(c.code).trim(), c]));
+  const existing = getAll(STORAGE_KEYS.LEDGER_ADJUSTMENTS);
+  const existingKeys = new Set(existing.map((a) => `${a.customerId}|${a.date}|${a.docType}|${a.amount}|${a.docNumber || ''}`));
+
+  const res = { imported: 0, skippedDuplicate: 0, skippedCustomerNotFound: [] };
+  parseRows(text).forEach(([code, date, docType, amount, note, docNumber]) => {
+    if (!code || code.trim().toLowerCase() === 'كود العميل') return;
+    code = code.trim();
+    const customer = customerByCode.get(code);
+    if (!customer) { res.skippedCustomerNotFound.push(`${code} (${date})`); return; }
+    const amt = toNum(amount);
+    const key = `${customer.id}|${date}|${docType}|${amt}|${docNumber || ''}`;
+    if (existingKeys.has(key)) { res.skippedDuplicate++; return; }
+    existingKeys.add(key);
+    addRecord(STORAGE_KEYS.LEDGER_ADJUSTMENTS, { customerId: customer.id, date, docType: docType || 'حركة', amount: amt, note: note || '', docNumber: docNumber || '', historicalImport: true });
+    res.imported++;
+  });
+  return res;
+}
+
+/** تثبيت الرصيد الافتتاحي لمجموعة عملاء دفعة واحدة. الأعمدة: كود العميل | الرصيد الافتتاحي | بتاريخ (YYYY-MM-DD) */
+function importOpeningBalances(text) {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const customerByCode = new Map(customers.filter((c) => c.code).map((c) => [String(c.code).trim(), c]));
+  const res = { updated: 0, notFound: [] };
+  parseRows(text).forEach(([code, balance, asOf]) => {
+    if (!code || code.trim().toLowerCase() === 'كود العميل') return;
+    code = code.trim();
+    const customer = customerByCode.get(code);
+    if (!customer) { res.notFound.push(code); return; }
+    updateRecord(STORAGE_KEYS.CUSTOMERS, customer.id, { openingBalance: toNum(balance), openingBalanceDate: asOf || null });
+    res.updated++;
+  });
+  return res;
+}
+
+/**
+ * تقرير مطابقة: بيقارن رصيدنا المحسوب في تاريخ معيّن مقابل رقم جاهز عندك (من الساب مثلاً).
+ * الأعمدة: كود العميل | اسم العميل (اختياري، للعرض بس) | الرصيد المتوقع | بتاريخ (YYYY-MM-DD)
+ * بيرجّع الفروق مرتبة من الأكبر للأصغر، عشان تلاقي المشاكل بسرعة.
+ */
+function getReconciliationReport(text) {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const customerByCode = new Map(customers.filter((c) => c.code).map((c) => [String(c.code).trim(), c]));
+  const rows = [];
+  parseRows(text).forEach(([code, name, expected, asOf]) => {
+    if (!code || code.trim().toLowerCase() === 'كود العميل') return;
+    code = code.trim();
+    const customer = customerByCode.get(code);
+    const expectedNum = toNum(expected);
+    if (!customer) { rows.push({ code, name: name || '?', found: false, expected: expectedNum, actual: null, diff: null, asOf }); return; }
+    const actual = Math.round(getCustomerBalanceAsOf(customer.id, asOf) * 100) / 100;
+    rows.push({ code, name: customer.name, found: true, expected: expectedNum, actual, diff: Math.round((actual - expectedNum) * 100) / 100, asOf });
+  });
+  return rows.sort((a, b) => Math.abs(b.diff || 0) - Math.abs(a.diff || 0));
 }
 
 /** الحالات المسموحة لأي طلبية أو صنف جواها */
@@ -1056,6 +1159,248 @@ function productFamily(category) {
   return parts.length ? parts[parts.length - 1] : 'بدون تصنيف';
 }
 
+// ------------------------------------------------------------
+// تحليل البيانات: فاميلي / منتج / عميل / نظرة عامة، شهري/ربعي/سنوي/إجمالي،
+// مع اتجاه زمني ومقارنة بنفس الفترة في السنة اللي فاتت، وتنبيهات ذكية.
+// كل الحسابات المالية بترجع صافي بعد استخراج الضريبة (القيمة ÷ (1+vatRate/100)).
+// ------------------------------------------------------------
+
+/** كل الفاميلي المميزة الموجودة في الكتالوج الحالي، مرتبة أبجدياً */
+function getFamilies() {
+  const fams = new Set(getAll(STORAGE_KEYS.PRODUCTS).map((p) => productFamily(p.category)));
+  return [...fams].sort((a, b) => a.localeCompare(b, 'ar'));
+}
+
+/** مفتاح الفترة لتاريخ معيّن حسب الدقة المطلوبة */
+function periodKey(dateStr, granularity) {
+  const d = new Date(dateStr);
+  if (isNaN(d)) return null;
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1; // 1-12
+  if (granularity === 'month') return `${y}-${String(m).padStart(2, '0')}`;
+  if (granularity === 'quarter') return `${y}-Q${Math.ceil(m / 3)}`;
+  if (granularity === 'year') return `${y}`;
+  return 'all';
+}
+
+/** مفتاح نفس الفترة بالظبط بس قبل N سنة (للمقارنة السنوية) */
+function shiftPeriodKeyYears(key, granularity, yearsBack = 1) {
+  if (granularity === 'all' || !key) return null;
+  if (granularity === 'month') {
+    const [y, m] = key.split('-');
+    return `${Number(y) - yearsBack}-${m}`;
+  }
+  if (granularity === 'quarter') {
+    const [y, q] = key.split('-Q');
+    return `${Number(y) - yearsBack}-Q${q}`;
+  }
+  if (granularity === 'year') return String(Number(key) - yearsBack);
+  return null;
+}
+
+/** تسمية عرض مفهومة للمفتاح */
+function periodLabel(key, granularity) {
+  if (!key) return '-';
+  if (granularity === 'month') {
+    const [y, m] = key.split('-');
+    const names = ['', 'يناير', 'فبراير', 'مارس', 'إبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    return `${names[Number(m)]} ${y}`;
+  }
+  return key; // quarter/year/all أسمائهم واضحة زي ما هي
+}
+
+/**
+ * بيحوّل كل الطلبيات (الحالية + المؤرشفة + التاريخية) لقايمة "أسطر" مسطّحة،
+ * كل سطر فيه صنف واحد من طلبية، بالفاميلي والعميل والتاريخ وصافي القيمة بعد الضريبة.
+ * أساس كل حسابات التحليل.
+ */
+function getAnalyticsLines(vatRate = 14) {
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const pMap = new Map(products.map((p) => [p.id, p]));
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const cMap = new Map(customers.map((c) => [c.id, c]));
+  const returns = validReturns();
+  const returnsByOrder = new Map();
+  returns.forEach((r) => {
+    if (!returnsByOrder.has(r.orderId)) returnsByOrder.set(r.orderId, []);
+    returnsByOrder.get(r.orderId).push(r);
+  });
+  const vatDivisor = 1 + (vatRate || 0) / 100;
+
+  const lines = [];
+  getReportOrders().forEach((o) => {
+    const customer = cMap.get(o.customerId);
+    o.items.forEach((it) => {
+      const p = pMap.get(it.productId);
+      lines.push({
+        date: o.date,
+        customerId: o.customerId,
+        customerName: customer ? customer.name : '(محذوف)',
+        productId: it.productId,
+        productName: p ? p.name : '(منتج محذوف)',
+        family: p ? productFamily(p.category) : 'بدون تصنيف',
+        qty: it.qty,
+        value: (it.qty * it.unitPrice) / vatDivisor,
+      });
+    });
+    // المرتجعات بتتخصم كسطر سالب بنفس الصنف والفاميلي، بنفس تاريخ المرتجع
+    (returnsByOrder.get(o.id) || []).forEach((r) => {
+      r.items.forEach((ri) => {
+        const p = pMap.get(ri.productId);
+        lines.push({
+          date: r.date,
+          customerId: o.customerId,
+          customerName: customer ? customer.name : '(محذوف)',
+          productId: ri.productId,
+          productName: p ? p.name : '(منتج محذوف)',
+          family: p ? productFamily(p.category) : 'بدون تصنيف',
+          qty: -ri.qty,
+          value: -(ri.qty * (ri.unitPrice || 0)) / vatDivisor,
+        });
+      });
+    });
+  });
+  return lines;
+}
+
+/** كل الفترات اللي فيها بيانات فعلاً لدقة معيّنة، الأحدث أولاً — لتعبئة قايمة اختيار الفترة */
+function getAvailablePeriods(granularity, vatRate = 14) {
+  if (granularity === 'all') return [];
+  const lines = getAnalyticsLines(vatRate);
+  const keys = new Set(lines.map((l) => periodKey(l.date, granularity)).filter(Boolean));
+  return [...keys].sort().reverse().map((k) => ({ key: k, label: periodLabel(k, granularity) }));
+}
+
+function matchesLevel(line, level, levelValue) {
+  if (level === 'family') return line.family === levelValue;
+  if (level === 'product') return line.productId === levelValue;
+  if (level === 'customer') return line.customerId === levelValue;
+  return true; // overview
+}
+
+/**
+ * التحليل الكامل لمستوى معيّن (فاميلي/منتج/عميل/نظرة عامة) ودقة زمنية ومفتاح فترة.
+ * بيرجّع: القيمة والكمية وعدد العملاء النشطين للفترة، اتجاه كل الفترات المتاحة،
+ * مقارنة بنفس الفترة السنة اللي فاتت، وتفصيل (breakdown) مختلف حسب المستوى.
+ */
+function getAnalytics({ level = 'overview', levelValue = null, granularity = 'month', periodKey: pKey = null, vatRate = 14 } = {}) {
+  const lines = getAnalyticsLines(vatRate).filter((l) => matchesLevel(l, level, levelValue));
+
+  // كل الفترات المتاحة في البيانات لهذا المستوى، للرسم البياني
+  const byPeriod = new Map();
+  lines.forEach((l) => {
+    const k = granularity === 'all' ? 'all' : periodKey(l.date, granularity);
+    if (!k) return;
+    if (!byPeriod.has(k)) byPeriod.set(k, { value: 0, qty: 0, customers: new Set() });
+    const agg = byPeriod.get(k);
+    agg.value += l.value;
+    agg.qty += l.qty;
+    agg.customers.add(l.customerId);
+  });
+  const trend = [...byPeriod.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, agg]) => ({ key, label: periodLabel(key, granularity), value: Math.round(agg.value * 100) / 100, qty: agg.qty, activeDealers: agg.customers.size }));
+
+  const currentKey = granularity === 'all' ? 'all' : (pKey || trend.at(-1)?.key || null);
+  const current = byPeriod.get(currentKey) || { value: 0, qty: 0, customers: new Set() };
+  const prevKey = granularity === 'all' ? null : shiftPeriodKeyYears(currentKey, granularity, 1);
+  const previous = prevKey ? byPeriod.get(prevKey) : null;
+  const comparison = {
+    currentKey, currentLabel: periodLabel(currentKey, granularity),
+    previousKey: prevKey, previousLabel: prevKey ? periodLabel(prevKey, granularity) : null,
+    currentValue: Math.round(current.value * 100) / 100,
+    previousValue: previous ? Math.round(previous.value * 100) / 100 : null,
+    deltaPct: previous && previous.value > 0 ? Math.round(((current.value - previous.value) / previous.value) * 10000) / 100 : null,
+  };
+
+  const currentLines = granularity === 'all' ? lines : lines.filter((l) => periodKey(l.date, granularity) === currentKey);
+
+  // تفصيل مختلف حسب المستوى
+  let breakdown = [];
+  if (level === 'overview') {
+    breakdown = aggregateBy(currentLines, (l) => l.family, 'family').slice(0, 10);
+  } else if (level === 'family') {
+    breakdown = aggregateBy(currentLines, (l) => l.productId, 'product').slice(0, 20);
+  } else if (level === 'product') {
+    breakdown = aggregateBy(currentLines, (l) => l.customerId, 'customer').slice(0, 20);
+  } else if (level === 'customer') {
+    const byFam = aggregateBy(currentLines, (l) => l.family, 'family');
+    breakdown = byFam;
+  }
+
+  let topCustomers = [];
+  if (level === 'overview') topCustomers = aggregateBy(currentLines, (l) => l.customerId, 'customer').slice(0, 10);
+
+  return {
+    level, levelValue, granularity,
+    value: Math.round(current.value * 100) / 100,
+    qty: current.qty,
+    activeDealers: current.customers.size,
+    trend, comparison, breakdown, topCustomers,
+  };
+}
+
+function aggregateBy(lines, keyFn, kind) {
+  const map = new Map();
+  lines.forEach((l) => {
+    const k = keyFn(l);
+    if (k === null || k === undefined) return;
+    if (!map.has(k)) {
+      map.set(k, {
+        key: k,
+        name: kind === 'family' ? k : kind === 'product' ? l.productName : kind === 'customer' ? l.customerName : k,
+        value: 0, qty: 0, families: new Set(),
+      });
+    }
+    const agg = map.get(k);
+    agg.value += l.value;
+    agg.qty += l.qty;
+    agg.families.add(l.family);
+  });
+  return [...map.values()]
+    .map((a) => ({ key: a.key, name: a.name, value: Math.round(a.value * 100) / 100, qty: a.qty, familyCount: a.families.size }))
+    .sort((a, b) => b.value - a.value);
+}
+
+/**
+ * تنبيهات ذكية: عملاء صاعدين/هابطين بشكل ملحوظ (مقارنة بنفس الفترة السنة اللي فاتت)،
+ * وفاميلي ضعيفة (نازلة عن نفس الفترة السنة اللي فاتت). العتبة الافتراضية 25%.
+ */
+function getSmartAlerts({ granularity = 'month', periodKey: pKey = null, vatRate = 14, threshold = 25 } = {}) {
+  const lines = getAnalyticsLines(vatRate);
+  const currentKey = granularity === 'all' ? null : (pKey || [...new Set(lines.map((l) => periodKey(l.date, granularity)))].sort().at(-1));
+  if (!currentKey) return { risingCustomers: [], fallingCustomers: [], weakFamilies: [] };
+  const prevKey = shiftPeriodKeyYears(currentKey, granularity, 1);
+
+  const curLines = lines.filter((l) => periodKey(l.date, granularity) === currentKey);
+  const prevLines = lines.filter((l) => periodKey(l.date, granularity) === prevKey);
+
+  function deltaList(keyFn, nameFn) {
+    const cur = new Map(), prev = new Map();
+    curLines.forEach((l) => cur.set(keyFn(l), (cur.get(keyFn(l)) || 0) + l.value));
+    prevLines.forEach((l) => prev.set(keyFn(l), (prev.get(keyFn(l)) || 0) + l.value));
+    const keys = new Set([...cur.keys(), ...prev.keys()]);
+    const out = [];
+    keys.forEach((k) => {
+      const c = cur.get(k) || 0, p = prev.get(k) || 0;
+      if (p < 100) return; // تجاهل اللي مالوش حجم يُذكر السنة اللي فاتت (نسبة % بتبقى مضللة)
+      const pct = Math.round(((c - p) / p) * 10000) / 100;
+      out.push({ key: k, name: nameFn(k), current: Math.round(c), previous: Math.round(p), deltaPct: pct });
+    });
+    return out;
+  }
+
+  const custDeltas = deltaList((l) => l.customerId, (id) => (lines.find((l) => l.customerId === id) || {}).customerName || '?');
+  const famDeltas = deltaList((l) => l.family, (f) => f);
+
+  return {
+    periodKey: currentKey, previousKey: prevKey,
+    risingCustomers: custDeltas.filter((d) => d.deltaPct >= threshold).sort((a, b) => b.deltaPct - a.deltaPct).slice(0, 10),
+    fallingCustomers: custDeltas.filter((d) => d.deltaPct <= -threshold).sort((a, b) => a.deltaPct - b.deltaPct).slice(0, 10),
+    weakFamilies: famDeltas.filter((d) => d.deltaPct <= -threshold).sort((a, b) => a.deltaPct - b.deltaPct),
+  };
+}
+
 /**
  * White Space: العملاء اللي اشتروا من كذا فاميلي أو أكتر (kpi.minFamilies، أقل حد 4) في الفترة.
  * بيرجّع تفاصيل كل عميل (الاسم وعدد الفاميلي) مش رقم بس، عشان تقدر تشوف الأسماء تحت الـ KPI.
@@ -1238,12 +1583,14 @@ export {
   recordReturn, getOrderReturns,
   getOrderAuditLog,
   getActiveOrders, getReportOrders, startNewMonth, esc, inPeriod, importHistoricalOrders,
+  importLedgerAdjustments, importOpeningBalances, getReconciliationReport, getCustomerBalanceAsOf,
   // شيكات
   updateCheckDelivery, markCheckCleared, markCheckBounced, getChecksDueSoon,
   // أهداف
   setTarget, getTargetProgress,
   // التارجت الشهري (KPIs)
   addKpi, getKpiProgress, getMonthlyScorecard, productFamily,
+  getFamilies, getAnalytics, getSmartAlerts, getAvailablePeriods,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
 };

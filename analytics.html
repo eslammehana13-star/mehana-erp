@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تحليل البيانات</title>
+<style>
+  :root {
+    --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
+    --primary: #1F5065; --primary-dark: #123244; --danger: #A6402F; --ok: #1F7A4D;
+    --warn-bg: #F5EBD6; --warn-border: #B8862E; --border: #DCE1DF;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Dubai', 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; }
+  h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  select, input { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; color: var(--text); }
+  label.vat-label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .kpi { background: var(--card); border-radius: 10px; padding: 12px 16px; flex: 1; min-width: 160px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .kpi .label { font-size: 12px; color: var(--muted); }
+  .kpi .value { font-size: 21px; font-weight: 700; color: var(--primary-dark); }
+  .kpi .delta { font-size: 13px; font-weight: 700; margin-top: 2px; }
+  .delta.up { color: var(--ok); } .delta.down { color: var(--danger); } .delta.flat { color: var(--muted); }
+  .two-col { display: flex; gap: 16px; flex-wrap: wrap; }
+  .two-col .card { flex: 1; min-width: 280px; }
+  .alert-box { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .alert-box.danger { background: #F2E1DC; border-color: var(--danger); }
+  .alert-box.ok { background: #E1EFE3; border-color: var(--ok); }
+  .alert-box strong { display: block; margin-bottom: 4px; }
+  .alert-box ul { margin: 0; padding-inline-start: 18px; font-size: 13px; }
+  .pct { font-weight: 700; }
+  .pct.up { color: var(--ok); } .pct.down { color: var(--danger); }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
+  nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
+  nav a.active { background: var(--primary); color: #fff; }
+  .chart-wrap { overflow-x: auto; }
+  .chart-wrap svg { display: block; min-width: 100%; }
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<nav>
+  <a href="index.html">🏠 الرئيسية</a>
+  <a href="inventory.html">📦 المخزون</a>
+  <a href="customers.html">💰 العملاء</a>
+  <a href="dealer-stock.html">🏬 مخزون التجار</a>
+  <a href="invoices.html">📄 الفواتير</a>
+  <a href="checks.html">🧾 الشيكات</a>
+  <a href="targets.html">🎯 الأهداف</a>
+  <a href="analytics.html" class="active">📊 تحليل البيانات</a>
+</nav>
+
+<h1>📊 تحليل البيانات</h1>
+<p class="muted">كل الأرقام هنا صافية بعد استخراج الضريبة، وبتشمل الفواتير الحالية والمؤرشفة والمستوردة تاريخياً تلقائياً.</p>
+
+<div class="card">
+  <form id="filtersForm" onsubmit="return false;">
+    <select id="f_level">
+      <option value="overview">🌐 نظرة عامة</option>
+      <option value="family">📦 فاميلي</option>
+      <option value="product">🛒 منتج</option>
+      <option value="customer">👤 عميل</option>
+    </select>
+    <select id="f_levelValue" style="display:none; min-width:220px;"></select>
+    <select id="f_granularity">
+      <option value="month">شهري</option>
+      <option value="quarter">ربع سنوي</option>
+      <option value="year">سنوي</option>
+      <option value="all">إجمالي كل الوقت</option>
+    </select>
+    <select id="f_period" style="min-width:140px;"></select>
+    <label class="vat-label" title="لاستخراج الضريبة من القيم شاملة الضريبة قبل العرض">
+      ضريبة %
+      <input type="number" id="f_vat" value="14" min="0" max="100" step="0.5" style="width:70px;">
+    </label>
+  </form>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">القيمة (صافي)</div><div class="value" id="kpiValue">0</div><div class="delta" id="kpiValueDelta"></div></div>
+  <div class="kpi"><div class="label">الكمية (قطعة)</div><div class="value" id="kpiQty">0</div></div>
+  <div class="kpi"><div class="label">عملاء نشطين</div><div class="value" id="kpiDealers">0</div></div>
+</div>
+
+<div class="card">
+  <h2 id="trendTitle">📈 الاتجاه عبر الزمن</h2>
+  <div class="chart-wrap" id="trendChart"></div>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <h2 id="breakdownTitle">التفصيل</h2>
+    <table>
+      <thead id="breakdownHead"></thead>
+      <tbody id="breakdownBody"></tbody>
+    </table>
+    <p class="muted" id="breakdownEmpty" style="display:none">لا توجد بيانات لهذه الفترة.</p>
+  </div>
+  <div class="card" id="topCustomersCard" style="display:none;">
+    <h2>🏆 أكبر العملاء</h2>
+    <table><thead><tr><th>العميل</th><th>القيمة</th></tr></thead><tbody id="topCustomersBody"></tbody></table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>🔔 تنبيهات ذكية — مقارنة بنفس الفترة السنة اللي فاتت</h2>
+  <div id="alertsBox"></div>
+</div>
+
+<script type="module">
+import {
+  esc, initStorage, getAll, STORAGE_KEYS,
+  getFamilies, getAnalytics, getSmartAlerts, getAvailablePeriods, productFamily,
+} from './erp-data-layer.js';
+
+initStorage();
+
+function vat() { return Number(document.getElementById('f_vat').value) || 0; }
+function level() { return document.getElementById('f_level').value; }
+function granularity() { return document.getElementById('f_granularity').value; }
+
+function populateLevelValue() {
+  const sel = document.getElementById('f_levelValue');
+  const lvl = level();
+  if (lvl === 'overview') { sel.style.display = 'none'; sel.innerHTML = ''; return; }
+  sel.style.display = '';
+  if (lvl === 'family') {
+    sel.innerHTML = getFamilies().map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
+  } else if (lvl === 'product') {
+    const products = getAll(STORAGE_KEYS.PRODUCTS).slice().sort((a, b) => productFamily(a.category).localeCompare(productFamily(b.category), 'ar'));
+    const groups = new Map();
+    products.forEach(p => { const f = productFamily(p.category); if (!groups.has(f)) groups.set(f, []); groups.get(f).push(p); });
+    sel.innerHTML = [...groups.entries()].map(([f, items]) =>
+      `<optgroup label="${esc(f)}">${items.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</optgroup>`
+    ).join('');
+  } else if (lvl === 'customer') {
+    const customers = getAll(STORAGE_KEYS.CUSTOMERS).slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+    sel.innerHTML = customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.code ? ' (' + esc(c.code) + ')' : ''}</option>`).join('');
+  }
+}
+
+function populatePeriod() {
+  const sel = document.getElementById('f_period');
+  const g = granularity();
+  if (g === 'all') { sel.style.display = 'none'; sel.innerHTML = ''; return; }
+  sel.style.display = '';
+  const periods = getAvailablePeriods(g, vat());
+  const prev = sel.value;
+  sel.innerHTML = periods.map(p => `<option value="${p.key}">${esc(p.label)}</option>`).join('');
+  if (prev && periods.some(p => p.key === prev)) sel.value = prev;
+}
+
+function lineChartSvg(trend) {
+  if (trend.length === 0) return '<p class="muted">لا توجد بيانات كافية لرسم اتجاه.</p>';
+  const W = Math.max(600, trend.length * 70), H = 220, padL = 60, padB = 40, padT = 16, padR = 16;
+  const max = Math.max(...trend.map(t => t.value), 1);
+  const min = Math.min(0, ...trend.map(t => t.value));
+  const xStep = (W - padL - padR) / Math.max(trend.length - 1, 1);
+  const yFor = (v) => H - padB - ((v - min) / (max - min || 1)) * (H - padT - padB);
+  const points = trend.map((t, i) => `${padL + i * xStep},${yFor(t.value)}`).join(' ');
+  const dots = trend.map((t, i) => `<circle cx="${padL + i * xStep}" cy="${yFor(t.value)}" r="4" fill="var(--primary, #1F5065)"><title>${esc(t.label)}: ${t.value.toLocaleString()}</title></circle>`).join('');
+  const labels = trend.map((t, i) => `<text x="${padL + i * xStep}" y="${H - 12}" font-size="11" text-anchor="middle" fill="var(--muted,#5B6572)">${esc(t.label)}</text>`).join('');
+  const zeroY = yFor(0);
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:${H}px;">
+    <line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="var(--border,#DCE1DF)" stroke-width="1"/>
+    <polyline points="${points}" fill="none" stroke="var(--primary,#1F5065)" stroke-width="2.5"/>
+    ${dots}
+    ${labels}
+    <text x="${padL}" y="16" font-size="11" fill="var(--muted,#5B6572)">${Math.round(max).toLocaleString()}</text>
+  </svg>`;
+}
+
+function renderKpis(a) {
+  document.getElementById('kpiValue').textContent = a.value.toLocaleString();
+  document.getElementById('kpiQty').textContent = a.qty.toLocaleString();
+  document.getElementById('kpiDealers').textContent = a.activeDealers.toLocaleString();
+  const d = document.getElementById('kpiValueDelta');
+  if (a.comparison.deltaPct === null) {
+    d.textContent = a.comparison.previousLabel ? `مفيش بيانات في ${a.comparison.previousLabel} للمقارنة` : '';
+    d.className = 'delta flat';
+  } else {
+    const up = a.comparison.deltaPct >= 0;
+    d.textContent = `${up ? '▲' : '▼'} ${Math.abs(a.comparison.deltaPct)}% عن ${a.comparison.previousLabel}`;
+    d.className = 'delta ' + (up ? 'up' : 'down');
+  }
+}
+
+function renderBreakdown(a) {
+  const head = document.getElementById('breakdownHead');
+  const body = document.getElementById('breakdownBody');
+  const title = document.getElementById('breakdownTitle');
+  const topCard = document.getElementById('topCustomersCard');
+  document.getElementById('breakdownEmpty').style.display = a.breakdown.length ? 'none' : 'block';
+
+  if (a.level === 'overview') {
+    title.textContent = '📦 أكبر الفاميلي';
+    head.innerHTML = '<tr><th>الفاميلي</th><th>القيمة</th><th>الكمية</th></tr>';
+    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
+    topCard.style.display = '';
+    document.getElementById('topCustomersBody').innerHTML = a.topCustomers.map(c => `<tr><td>${esc(c.name)}</td><td>${c.value.toLocaleString()}</td></tr>`).join('');
+  } else if (a.level === 'family') {
+    title.textContent = '🛒 المنتجات داخل الفاميلي';
+    head.innerHTML = '<tr><th>المنتج</th><th>القيمة</th><th>الكمية</th></tr>';
+    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
+    topCard.style.display = 'none';
+  } else if (a.level === 'product') {
+    title.textContent = '👤 العملاء اللي اشتروه';
+    head.innerHTML = '<tr><th>العميل</th><th>القيمة</th><th>الكمية</th></tr>';
+    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
+    topCard.style.display = 'none';
+  } else if (a.level === 'customer') {
+    title.textContent = `📦 الفاميلي اللي اشترى منها (${a.breakdown.length} فاميلي)`;
+    head.innerHTML = '<tr><th>الفاميلي</th><th>القيمة</th><th>الكمية</th></tr>';
+    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
+    topCard.style.display = 'none';
+  }
+}
+
+function renderAlerts(alerts) {
+  const box = document.getElementById('alertsBox');
+  if (!alerts.periodKey) { box.innerHTML = '<p class="muted">مفيش بيانات كفاية للمقارنة في هذه الدقة الزمنية.</p>'; return; }
+  const sections = [];
+  if (alerts.risingCustomers.length) {
+    sections.push(`<div class="alert-box ok"><strong>📈 عملاء صاعدين بشكل ملحوظ (مقارنة بـ ${esc(alerts.previousKey || '')})</strong>
+      <ul>${alerts.risingCustomers.map(c => `<li>${esc(c.name)} — <span class="pct up">+${c.deltaPct}%</span> (${c.current.toLocaleString()} مقابل ${c.previous.toLocaleString()})</li>`).join('')}</ul></div>`);
+  }
+  if (alerts.fallingCustomers.length) {
+    sections.push(`<div class="alert-box danger"><strong>📉 عملاء هابطين بشكل ملحوظ</strong>
+      <ul>${alerts.fallingCustomers.map(c => `<li>${esc(c.name)} — <span class="pct down">${c.deltaPct}%</span> (${c.current.toLocaleString()} مقابل ${c.previous.toLocaleString()})</li>`).join('')}</ul></div>`);
+  }
+  if (alerts.weakFamilies.length) {
+    sections.push(`<div class="alert-box"><strong>⚠ فاميلي ضعيفة محتاجة تركيز</strong>
+      <ul>${alerts.weakFamilies.map(f => `<li>${esc(f.name)} — <span class="pct down">${f.deltaPct}%</span> (${f.current.toLocaleString()} مقابل ${f.previous.toLocaleString()})</li>`).join('')}</ul></div>`);
+  }
+  box.innerHTML = sections.length ? sections.join('') : '<p class="muted">✅ مفيش تنبيهات ملحوظة في هذه الفترة.</p>';
+}
+
+function refresh() {
+  const a = getAnalytics({ level: level(), levelValue: document.getElementById('f_levelValue').value || null, granularity: granularity(), periodKey: document.getElementById('f_period').value || null, vatRate: vat() });
+  document.getElementById('trendTitle').textContent = `📈 الاتجاه عبر الزمن${a.comparison.currentLabel ? ' — ' + a.comparison.currentLabel : ''}`;
+  document.getElementById('trendChart').innerHTML = lineChartSvg(a.trend);
+  renderKpis(a);
+  renderBreakdown(a);
+  const alerts = getSmartAlerts({ granularity: granularity() === 'all' ? 'month' : granularity(), periodKey: granularity() === 'all' ? null : (document.getElementById('f_period').value || null), vatRate: vat() });
+  renderAlerts(alerts);
+}
+
+document.getElementById('f_level').addEventListener('change', () => { populateLevelValue(); refresh(); });
+document.getElementById('f_levelValue').addEventListener('change', refresh);
+document.getElementById('f_granularity').addEventListener('change', () => { populatePeriod(); refresh(); });
+document.getElementById('f_period').addEventListener('change', refresh);
+document.getElementById('f_vat').addEventListener('change', () => { populatePeriod(); refresh(); });
+
+populateLevelValue();
+populatePeriod();
+refresh();
+</script>
+</body>
+</html>
