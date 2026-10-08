@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>تحليل البيانات</title>
+<title>تحليل المبيعات</title>
 <style>
   :root {
     --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
@@ -15,33 +15,54 @@
   h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
   h2 { font-size: 16px; margin: 0 0 10px; }
   .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
-  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  select, input { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; color: var(--text); }
-  label.vat-label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
-  th, td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
-  .muted { color: var(--muted); font-size: 13px; }
+  select, input, button { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: #fff; color: var(--text); font-family: inherit; }
+  button { cursor: pointer; background: var(--primary); color: #fff; font-weight: 600; border: none; }
+  button.secondary { background: var(--surface-alt, #E7EAE7); color: var(--text); }
+  button.danger { background: var(--danger); color: #fff; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13.5px; }
+  th, td { padding: 7px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; border-bottom: 2px solid var(--border); }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  .filter-bar { position: sticky; top: 0; z-index: 50; background: var(--card); padding: 14px; border-radius: 14px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(18,50,68,0.08); }
+  .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  .filter-row:last-child { margin-bottom: 0; }
+  .filter-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .ms { position: relative; min-width: 160px; }
+  .ms-input { width: 100%; cursor: pointer; display:flex; align-items:center; justify-content:space-between; }
+  .ms-panel { display: none; position: absolute; top: 100%; right: 0; z-index: 100; background: #fff; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 8px; min-width: 220px; max-height: 280px; overflow-y: auto; }
+  .ms-panel.open { display: block; }
+  .ms-panel input[type=text] { width: 100%; margin-bottom: 6px; }
+  .ms-opt { display: flex; align-items: center; gap: 6px; padding: 4px 2px; font-size: 13px; cursor: pointer; }
+  .ms-actions { display: flex; gap: 6px; margin-bottom: 6px; }
+  .ms-actions button { font-size: 11px; padding: 3px 8px; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip { background: var(--surface-alt, #E7EAE7); border-radius: 12px; padding: 2px 8px; font-size: 11px; }
   .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
   .kpi { background: var(--card); border-radius: 10px; padding: 12px 16px; flex: 1; min-width: 160px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
   .kpi .label { font-size: 12px; color: var(--muted); }
   .kpi .value { font-size: 21px; font-weight: 700; color: var(--primary-dark); }
-  .kpi .delta { font-size: 13px; font-weight: 700; margin-top: 2px; }
-  .delta.up { color: var(--ok); } .delta.down { color: var(--danger); } .delta.flat { color: var(--muted); }
+  .kpi .sub { font-size: 12px; margin-top: 3px; color: var(--muted); }
+  .badge-g { font-weight: 700; padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+  .badge-g.up { color: var(--ok); background: #E1EFE3; } .badge-g.down { color: var(--danger); background: #F2E1DC; } .badge-g.flat { color: var(--muted); background: #EEE; }
   .two-col { display: flex; gap: 16px; flex-wrap: wrap; }
-  .two-col .card { flex: 1; min-width: 280px; }
-  .alert-box { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
-  .alert-box.danger { background: #F2E1DC; border-color: var(--danger); }
-  .alert-box.ok { background: #E1EFE3; border-color: var(--ok); }
-  .alert-box strong { display: block; margin-bottom: 4px; }
-  .alert-box ul { margin: 0; padding-inline-start: 18px; font-size: 13px; }
-  .pct { font-weight: 700; }
-  .pct.up { color: var(--ok); } .pct.down { color: var(--danger); }
+  .two-col .card { flex: 1; min-width: 300px; }
+  .summary-list { margin: 0; padding-inline-start: 18px; font-size: 13.5px; line-height: 1.9; }
+  .dq-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; }
+  .dq-item b { color: var(--primary-dark); }
   nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
   nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
   nav a.active { background: var(--primary); color: #fff; }
   .chart-wrap { overflow-x: auto; }
   .chart-wrap svg { display: block; min-width: 100%; }
+  .toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable .arrow { font-size: 10px; margin-inline-start: 2px; }
+  @media print {
+    body * { visibility: hidden; }
+    #detailCard, #detailCard table, #detailCard table * { visibility: visible; }
+    #detailCard { position: absolute; top: 0; right: 0; left: 0; box-shadow: none; border: none; }
+    #detailSearch, #btnExportCsv, #btnPrint, .colToggle, #detailPrev, #detailNext, #detailPageLabel, #detailCount, .filter-row { display: none !important; }
+  }
 </style>
 <link rel="stylesheet" href="theme.css">
 <script src="theme.js"></script>
@@ -55,212 +76,642 @@
   <a href="invoices.html">📄 الفواتير</a>
   <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
-  <a href="analytics.html" class="active">📊 تحليل البيانات</a>
+  <a href="analytics.html" class="active">📊 تحليل المبيعات</a>
 </nav>
 
-<h1>📊 تحليل البيانات</h1>
-<p class="muted">كل الأرقام هنا صافية بعد استخراج الضريبة، وبتشمل الفواتير الحالية والمؤرشفة والمستوردة تاريخياً تلقائياً.</p>
+<h1>📊 تحليل المبيعات</h1>
+<p class="muted">مقارنة 2026 مقابل 2025، صافية بعد استخراج الضريبة. مرحلة 1 من الوحدة — KPIs والنمو والتحليل الزمني والفلاتر الحقيقية.</p>
 
-<div class="card">
-  <form id="filtersForm" onsubmit="return false;">
-    <select id="f_level">
-      <option value="overview">🌐 نظرة عامة</option>
-      <option value="family">📦 فاميلي</option>
-      <option value="product">🛒 منتج</option>
-      <option value="customer">👤 عميل</option>
+<div class="filter-bar">
+  <div class="filter-row">
+    <span class="filter-label">السنة</span>
+    <select id="f_year"></select>
+    <span class="filter-label">الفترة</span>
+    <select id="f_periodType">
+      <option value="ytd">YTD (حتى آخر بيانات)</option>
+      <option value="full">السنة كاملة</option>
+      <option value="month">شهر/أشهر محددة</option>
+      <option value="quarter">ربع سنة</option>
+      <option value="half">نصف سنة</option>
     </select>
-    <select id="f_levelValue" style="display:none; min-width:220px;"></select>
-    <select id="f_granularity">
-      <option value="month">شهري</option>
-      <option value="quarter">ربع سنوي</option>
-      <option value="year">سنوي</option>
-      <option value="all">إجمالي كل الوقت</option>
-    </select>
-    <select id="f_period" style="min-width:140px;"></select>
-    <label class="vat-label" title="لاستخراج الضريبة من القيم شاملة الضريبة قبل العرض">
-      ضريبة %
-      <input type="number" id="f_vat" value="14" min="0" max="100" step="0.5" style="width:70px;">
-    </label>
-  </form>
+    <div id="periodSub"></div>
+    <label class="toggle-wrap"><input type="checkbox" id="f_compare" checked> وضع المقارنة (2025)</label>
+  </div>
+  <div class="filter-row">
+    <span class="filter-label">عميل</span>
+    <div class="ms" id="ms_customer"></div>
+    <span class="filter-label">فاميلي</span>
+    <div class="ms" id="ms_family"></div>
+    <span class="filter-label">منتج</span>
+    <div class="ms" id="ms_product"></div>
+    <button type="button" class="secondary" id="btnResetFilters">🔄 Reset Filters</button>
+    <button type="button" class="secondary" id="btnRefresh">↻ Refresh</button>
+  </div>
 </div>
 
-<div class="kpis">
-  <div class="kpi"><div class="label">القيمة (صافي)</div><div class="value" id="kpiValue">0</div><div class="delta" id="kpiValueDelta"></div></div>
-  <div class="kpi"><div class="label">الكمية (قطعة)</div><div class="value" id="kpiQty">0</div></div>
-  <div class="kpi"><div class="label">عملاء نشطين</div><div class="value" id="kpiDealers">0</div></div>
-</div>
+<div class="kpis" id="kpiCards"></div>
 
 <div class="card">
-  <h2 id="trendTitle">📈 الاتجاه عبر الزمن</h2>
-  <div class="chart-wrap" id="trendChart"></div>
+  <h2>📝 ملخص تنفيذي (Executive Summary)</h2>
+  <ul class="summary-list" id="execSummary"></ul>
 </div>
 
 <div class="two-col">
   <div class="card">
-    <h2 id="breakdownTitle">التفصيل</h2>
-    <table>
-      <thead id="breakdownHead"></thead>
-      <tbody id="breakdownBody"></tbody>
-    </table>
-    <p class="muted" id="breakdownEmpty" style="display:none">لا توجد بيانات لهذه الفترة.</p>
+    <h2>📈 نمو أعلى (Top Growth)</h2>
+    <table><thead><tr><th>عميل</th><th>نمو</th></tr></thead><tbody id="topGrowthCust"></tbody></table>
+    <table><thead><tr><th>فاميلي</th><th>نمو</th></tr></thead><tbody id="topGrowthFam"></tbody></table>
   </div>
-  <div class="card" id="topCustomersCard" style="display:none;">
-    <h2>🏆 أكبر العملاء</h2>
-    <table><thead><tr><th>العميل</th><th>القيمة</th></tr></thead><tbody id="topCustomersBody"></tbody></table>
+  <div class="card">
+    <h2>⚠ محتاج انتباه (Attention Needed)</h2>
+    <table><thead><tr><th>عميل</th><th>تراجع</th></tr></thead><tbody id="topDeclineCust"></tbody></table>
+    <table><thead><tr><th>فاميلي</th><th>تراجع</th></tr></thead><tbody id="topDeclineFam"></tbody></table>
   </div>
 </div>
 
 <div class="card">
-  <h2>🔔 تنبيهات ذكية — مقارنة بنفس الفترة السنة اللي فاتت</h2>
-  <div id="alertsBox"></div>
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+    <h2 style="margin:0;">🕒 التحليل الزمني — <span id="timeYearLabel"></span></h2>
+    <select id="f_granularity">
+      <option value="month">شهري</option>
+      <option value="quarter">ربع سنوي</option>
+      <option value="half">نصف سنوي</option>
+    </select>
+  </div>
+  <div class="chart-wrap" id="timeChart"></div>
+  <table>
+    <thead><tr><th>الفترة</th><th id="thCurYear"></th><th id="thPrevYear"></th><th>النمو</th></tr></thead>
+    <tbody id="timeTable"></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    <h2 style="margin:0;">👤 تحليل العملاء</h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <input type="text" id="custSearch" placeholder="بحث باسم العميل..." style="min-width:160px;">
+      <select id="custRank">
+        <option value="value">أعلى قيمة</option>
+        <option value="qty">أعلى كمية</option>
+        <option value="growth">أعلى نمو</option>
+        <option value="decline">أكبر تراجع</option>
+        <option value="new">عملاء جدد</option>
+        <option value="lost">فقدناهم</option>
+      </select>
+      <select id="custTopN">
+        <option value="10">Top 10</option>
+        <option value="5">Top 5</option>
+        <option value="20">Top 20</option>
+        <option value="all">الكل</option>
+      </select>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>العميل</th><th>الكود</th><th id="custQtyPrevTh"></th><th id="custQtyCurTh"></th><th>نمو الكمية</th><th id="custValPrevTh"></th><th id="custValCurTh"></th><th>نمو القيمة</th><th>الحالة</th></tr></thead>
+    <tbody id="custTable"></tbody>
+  </table>
+  <p class="muted" id="custEmpty" style="display:none">لا توجد بيانات.</p>
+</div>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    <h2 style="margin:0;">📦 تحليل الفاميلي</h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <select id="famRank">
+        <option value="value">أعلى قيمة</option>
+        <option value="qty">أعلى كمية</option>
+        <option value="growth">أعلى نمو</option>
+        <option value="decline">أكبر تراجع</option>
+      </select>
+      <select id="famTopN">
+        <option value="all">الكل</option>
+        <option value="5">Top 5</option>
+        <option value="10">Top 10</option>
+      </select>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>الفاميلي</th><th id="famQtyPrevTh"></th><th id="famQtyCurTh"></th><th>نمو الكمية</th><th id="famValPrevTh"></th><th id="famValCurTh"></th><th>نمو القيمة</th><th>عدد العملاء</th><th>عدد المنتجات</th></tr></thead>
+    <tbody id="famTable"></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    <h2 style="margin:0;">🛒 تحليل المنتجات</h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <input type="text" id="prodSearch" placeholder="بحث باسم المنتج..." style="min-width:160px;">
+      <select id="prodRank">
+        <option value="value">أعلى قيمة</option>
+        <option value="qty">أعلى كمية</option>
+        <option value="growth">أعلى نمو</option>
+        <option value="decline">أكبر تراجع</option>
+        <option value="new">منتجات جديدة</option>
+        <option value="stopped">توقف بيعها</option>
+        <option value="zero">صفر مبيعات</option>
+      </select>
+      <select id="prodTopN">
+        <option value="20">Top 20</option>
+        <option value="10">Top 10</option>
+        <option value="50">Top 50</option>
+        <option value="all">الكل</option>
+      </select>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>المنتج</th><th>الفاميلي</th><th id="prodQtyPrevTh"></th><th id="prodQtyCurTh"></th><th>نمو الكمية</th><th id="prodValPrevTh"></th><th id="prodValCurTh"></th><th>نمو القيمة</th><th>ملاحظة</th></tr></thead>
+    <tbody id="prodTable"></tbody>
+  </table>
+  <p class="muted" id="prodEmpty" style="display:none">لا توجد بيانات.</p>
+</div>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    <h2 style="margin:0;">🔢 Customer × Family Matrix</h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <input type="text" id="matrixSearch" placeholder="بحث عن عميل..." style="min-width:160px;">
+      <select id="matrixMetric">
+        <option value="value">القيمة</option>
+        <option value="qty">الكمية</option>
+        <option value="growth">النمو %</option>
+      </select>
+    </div>
+  </div>
+  <div class="chart-wrap">
+    <table id="matrixTable"></table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>🔍 Drill Down: عميل ← فاميلي ← منتج</h2>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+    <select id="drillCustomer" style="min-width:220px;"></select>
+    <span class="muted" id="drillBreadcrumb"></span>
+    <button type="button" class="secondary" id="drillBack" style="display:none;">◀ رجوع</button>
+  </div>
+  <div id="drillBody"></div>
+</div>
+
+<div class="card" id="detailCard">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+    <h2 style="margin:0;">📋 البيانات التفصيلية</h2>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <input type="text" id="detailSearch" placeholder="بحث (عميل/منتج/فاميلي)..." style="min-width:180px;">
+      <button type="button" class="secondary" id="btnExportCsv">⬇ تصدير Excel/CSV</button>
+      <button type="button" class="secondary" id="btnPrint">🖨 طباعة</button>
+    </div>
+  </div>
+  <div class="filter-row" style="margin-bottom:8px;">
+    <span class="filter-label">الأعمدة:</span>
+    <label class="toggle-wrap"><input type="checkbox" class="colToggle" data-col="date" checked> التاريخ</label>
+    <label class="toggle-wrap"><input type="checkbox" class="colToggle" data-col="customer" checked> العميل</label>
+    <label class="toggle-wrap"><input type="checkbox" class="colToggle" data-col="product" checked> المنتج</label>
+    <label class="toggle-wrap"><input type="checkbox" class="colToggle" data-col="family" checked> الفاميلي</label>
+    <label class="toggle-wrap"><input type="checkbox" class="colToggle" data-col="qty" checked> الكمية</label>
+    <label class="toggle-wrap"><input type="checkbox" class="colToggle" data-col="value" checked> القيمة</label>
+  </div>
+  <div class="chart-wrap">
+    <table id="detailTable"></table>
+  </div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+    <span class="muted" id="detailCount"></span>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button type="button" class="secondary" id="detailPrev">‹ السابق</button>
+      <span class="muted" id="detailPageLabel"></span>
+      <button type="button" class="secondary" id="detailNext">التالي ›</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+    <h2 style="margin:0;">✅ جودة البيانات (Data Quality)</h2>
+    <button type="button" class="danger" id="btnClearHistorical">🗑 مسح كل البيانات التاريخية المستوردة</button>
+  </div>
+  <div class="dq-row" id="dqBox"></div>
 </div>
 
 <script type="module">
 import {
   esc, initStorage, getAll, STORAGE_KEYS,
-  getFamilies, getAnalytics, getSmartAlerts, getAvailablePeriods, productFamily,
+  getFamilies, getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
+  getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
 } from './erp-data-layer.js';
 
 initStorage();
 
-function vat() { return Number(document.getElementById('f_vat').value) || 0; }
-function level() { return document.getElementById('f_level').value; }
-function granularity() { return document.getElementById('f_granularity').value; }
+// ---------------- حالة الفلاتر ----------------
+const state = { year: null, periodType: 'ytd', months: [], quarters: [], halves: [], customerIds: [], familyNames: [], productIds: [], compare: true, granularity: 'month' };
 
-function populateLevelValue() {
-  const sel = document.getElementById('f_levelValue');
-  const lvl = level();
-  if (lvl === 'overview') { sel.style.display = 'none'; sel.innerHTML = ''; return; }
-  sel.style.display = '';
-  if (lvl === 'family') {
-    sel.innerHTML = getFamilies().map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
-  } else if (lvl === 'product') {
-    const products = getAll(STORAGE_KEYS.PRODUCTS).slice().sort((a, b) => productFamily(a.category).localeCompare(productFamily(b.category), 'ar'));
-    const groups = new Map();
-    products.forEach(p => { const f = productFamily(p.category); if (!groups.has(f)) groups.set(f, []); groups.get(f).push(p); });
-    sel.innerHTML = [...groups.entries()].map(([f, items]) =>
-      `<optgroup label="${esc(f)}">${items.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</optgroup>`
+// ---------------- مكوّن اختيار متعدد قابل للبحث ----------------
+function createMultiSelect(containerId, options, placeholder, onChange) {
+  const el = document.getElementById(containerId);
+  let selected = [];
+  el.innerHTML = `
+    <input type="text" class="ms-input" readonly placeholder="${esc(placeholder)}">
+    <div class="ms-panel">
+      <input type="text" class="ms-search" placeholder="بحث...">
+      <div class="ms-actions">
+        <button type="button" class="secondary" data-act="all">تحديد الكل</button>
+        <button type="button" class="secondary" data-act="none">إلغاء الكل</button>
+      </div>
+      <div class="ms-list"></div>
+    </div>`;
+  const input = el.querySelector('.ms-input');
+  const panel = el.querySelector('.ms-panel');
+  const search = el.querySelector('.ms-search');
+  const list = el.querySelector('.ms-list');
+
+  function renderList(filterText) {
+    const q = (filterText || '').trim().toLowerCase();
+    list.innerHTML = options.filter(o => !q || o.label.toLowerCase().includes(q)).map(o =>
+      `<label class="ms-opt"><input type="checkbox" value="${esc(o.value)}" ${selected.includes(o.value) ? 'checked' : ''}> ${esc(o.label)}</label>`
     ).join('');
-  } else if (lvl === 'customer') {
-    const customers = getAll(STORAGE_KEYS.CUSTOMERS).slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-    sel.innerHTML = customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.code ? ' (' + esc(c.code) + ')' : ''}</option>`).join('');
+    list.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
+      if (cb.checked) selected.push(cb.value); else selected = selected.filter(v => v !== cb.value);
+      updateInputLabel();
+      onChange(selected);
+    }));
   }
+  function updateInputLabel() {
+    input.value = selected.length === 0 ? placeholder : `${placeholder} (${selected.length})`;
+  }
+  input.addEventListener('click', () => { panel.classList.toggle('open'); if (panel.classList.contains('open')) { search.value = ''; renderList(''); } });
+  document.addEventListener('click', (e) => { if (!el.contains(e.target)) panel.classList.remove('open'); });
+  search.addEventListener('input', () => renderList(search.value));
+  el.querySelector('[data-act="all"]').addEventListener('click', () => { selected = options.map(o => o.value); updateInputLabel(); renderList(search.value); onChange(selected); });
+  el.querySelector('[data-act="none"]').addEventListener('click', () => { selected = []; updateInputLabel(); renderList(search.value); onChange(selected); });
+  renderList('');
+  updateInputLabel();
+  return { reset: () => { selected = []; updateInputLabel(); renderList(''); } };
 }
 
-function populatePeriod() {
-  const sel = document.getElementById('f_period');
-  const g = granularity();
-  if (g === 'all') { sel.style.display = 'none'; sel.innerHTML = ''; return; }
-  sel.style.display = '';
-  const periods = getAvailablePeriods(g, vat());
-  const prev = sel.value;
-  sel.innerHTML = periods.map(p => `<option value="${p.key}">${esc(p.label)}</option>`).join('');
-  if (prev && periods.some(p => p.key === prev)) sel.value = prev;
+let msCustomer, msFamily, msProduct;
+
+function initFilters() {
+  const years = getSalesYears();
+  const sel = document.getElementById('f_year');
+  sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  state.year = years.length ? years[years.length - 1] : new Date().getFullYear();
+  sel.value = state.year;
+
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS).slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  msCustomer = createMultiSelect('ms_customer', customers.map(c => ({ value: c.id, label: c.name })), 'كل العملاء', (v) => { state.customerIds = v; refresh(); });
+  msFamily = createMultiSelect('ms_family', getFamilies().map(f => ({ value: f, label: f })), 'كل الفاميلي', (v) => { state.familyNames = v; refresh(); });
+  const products = getAll(STORAGE_KEYS.PRODUCTS).slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  msProduct = createMultiSelect('ms_product', products.map(p => ({ value: p.id, label: p.name })), 'كل المنتجات', (v) => { state.productIds = v; refresh(); });
 }
 
-function lineChartSvg(trend) {
-  if (trend.length === 0) return '<p class="muted">لا توجد بيانات كافية لرسم اتجاه.</p>';
-  const W = Math.max(600, trend.length * 70), H = 220, padL = 60, padB = 40, padT = 16, padR = 16;
-  const max = Math.max(...trend.map(t => t.value), 1);
-  const min = Math.min(0, ...trend.map(t => t.value));
-  const xStep = (W - padL - padR) / Math.max(trend.length - 1, 1);
-  const yFor = (v) => H - padB - ((v - min) / (max - min || 1)) * (H - padT - padB);
-  const points = trend.map((t, i) => `${padL + i * xStep},${yFor(t.value)}`).join(' ');
-  const dots = trend.map((t, i) => `<circle cx="${padL + i * xStep}" cy="${yFor(t.value)}" r="4" fill="var(--primary, #1F5065)"><title>${esc(t.label)}: ${t.value.toLocaleString()}</title></circle>`).join('');
-  const labels = trend.map((t, i) => `<text x="${padL + i * xStep}" y="${H - 12}" font-size="11" text-anchor="middle" fill="var(--muted,#5B6572)">${esc(t.label)}</text>`).join('');
-  const zeroY = yFor(0);
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:${H}px;">
-    <line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="var(--border,#DCE1DF)" stroke-width="1"/>
-    <polyline points="${points}" fill="none" stroke="var(--primary,#1F5065)" stroke-width="2.5"/>
-    ${dots}
-    ${labels}
-    <text x="${padL}" y="16" font-size="11" fill="var(--muted,#5B6572)">${Math.round(max).toLocaleString()}</text>
-  </svg>`;
-}
-
-function renderKpis(a) {
-  document.getElementById('kpiValue').textContent = a.value.toLocaleString();
-  document.getElementById('kpiQty').textContent = a.qty.toLocaleString();
-  document.getElementById('kpiDealers').textContent = a.activeDealers.toLocaleString();
-  const d = document.getElementById('kpiValueDelta');
-  if (a.comparison.deltaPct === null) {
-    d.textContent = a.comparison.previousLabel ? `مفيش بيانات في ${a.comparison.previousLabel} للمقارنة` : '';
-    d.className = 'delta flat';
+function renderPeriodSub() {
+  const box = document.getElementById('periodSub');
+  if (state.periodType === 'month') {
+    box.innerHTML = `<select id="sub_month" multiple size="1" style="min-width:140px;">${['يناير','فبراير','مارس','إبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'].map((n, i) => `<option value="${i + 1}">${n}</option>`).join('')}</select>`;
+    document.getElementById('sub_month').addEventListener('change', (e) => { state.months = [...e.target.selectedOptions].map(o => Number(o.value)); refresh(); });
+  } else if (state.periodType === 'quarter') {
+    box.innerHTML = `<select id="sub_q" multiple size="1" style="min-width:100px;">${[1, 2, 3, 4].map(q => `<option value="${q}">Q${q}</option>`).join('')}</select>`;
+    document.getElementById('sub_q').addEventListener('change', (e) => { state.quarters = [...e.target.selectedOptions].map(o => Number(o.value)); refresh(); });
+  } else if (state.periodType === 'half') {
+    box.innerHTML = `<select id="sub_h" multiple size="1" style="min-width:100px;">${[1, 2].map(h => `<option value="${h}">H${h}</option>`).join('')}</select>`;
+    document.getElementById('sub_h').addEventListener('change', (e) => { state.halves = [...e.target.selectedOptions].map(o => Number(o.value)); refresh(); });
   } else {
-    const up = a.comparison.deltaPct >= 0;
-    d.textContent = `${up ? '▲' : '▼'} ${Math.abs(a.comparison.deltaPct)}% عن ${a.comparison.previousLabel}`;
-    d.className = 'delta ' + (up ? 'up' : 'down');
+    box.innerHTML = '';
   }
 }
 
-function renderBreakdown(a) {
-  const head = document.getElementById('breakdownHead');
-  const body = document.getElementById('breakdownBody');
-  const title = document.getElementById('breakdownTitle');
-  const topCard = document.getElementById('topCustomersCard');
-  document.getElementById('breakdownEmpty').style.display = a.breakdown.length ? 'none' : 'block';
+function gBadge(g) {
+  if (g.pct === null) return `<span class="badge-g flat">${g.label}</span>`;
+  return `<span class="badge-g ${g.pct >= 0 ? 'up' : 'down'}">${g.pct >= 0 ? '▲' : '▼'} ${g.label}</span>`;
+}
 
-  if (a.level === 'overview') {
-    title.textContent = '📦 أكبر الفاميلي';
-    head.innerHTML = '<tr><th>الفاميلي</th><th>القيمة</th><th>الكمية</th></tr>';
-    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
-    topCard.style.display = '';
-    document.getElementById('topCustomersBody').innerHTML = a.topCustomers.map(c => `<tr><td>${esc(c.name)}</td><td>${c.value.toLocaleString()}</td></tr>`).join('');
-  } else if (a.level === 'family') {
-    title.textContent = '🛒 المنتجات داخل الفاميلي';
-    head.innerHTML = '<tr><th>المنتج</th><th>القيمة</th><th>الكمية</th></tr>';
-    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
-    topCard.style.display = 'none';
-  } else if (a.level === 'product') {
-    title.textContent = '👤 العملاء اللي اشتروه';
-    head.innerHTML = '<tr><th>العميل</th><th>القيمة</th><th>الكمية</th></tr>';
-    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
-    topCard.style.display = 'none';
-  } else if (a.level === 'customer') {
-    title.textContent = `📦 الفاميلي اللي اشترى منها (${a.breakdown.length} فاميلي)`;
-    head.innerHTML = '<tr><th>الفاميلي</th><th>القيمة</th><th>الكمية</th></tr>';
-    body.innerHTML = a.breakdown.map(b => `<tr><td>${esc(b.name)}</td><td>${b.value.toLocaleString()}</td><td>${b.qty.toLocaleString()}</td></tr>`).join('');
-    topCard.style.display = 'none';
+function renderKpis(o) {
+  const cmp = state.compare;
+  const cards = [
+    { label: 'إجمالي المبيعات (صافي)', value: o.current.value.toLocaleString(), g: o.growth.value },
+    { label: 'إجمالي الكمية', value: o.current.qty.toLocaleString(), g: o.growth.qty },
+    { label: 'عملاء نشطين', value: o.current.customers.toLocaleString(), g: o.growth.customers },
+    { label: 'عدد المنتجات المباعة', value: o.current.products.toLocaleString(), g: null },
+    { label: 'عدد الفاميلي', value: o.current.families.toLocaleString(), g: null },
+    { label: 'متوسط المبيعات / عميل', value: o.current.avgPerCustomer.toLocaleString(), g: null },
+  ];
+  document.getElementById('kpiCards').innerHTML = cards.map(c => `
+    <div class="kpi">
+      <div class="label">${c.label}</div>
+      <div class="value">${c.value}</div>
+      ${cmp && c.g ? `<div class="sub">${gBadge(c.g)} عن ${o.range.prevYear}</div>` : ''}
+    </div>`).join('');
+}
+
+function renderSummary(o) {
+  const ul = document.getElementById('execSummary');
+  ul.innerHTML = o.summary.length ? o.summary.map(s => `<li>${esc(s)}</li>`).join('') : '<li class="muted">لا توجد بيانات كافية لتوليد ملخص.</li>';
+}
+
+function renderGrowthTables(o) {
+  document.getElementById('topGrowthCust').innerHTML = o.topGrowth.customers.map(c => `<tr><td>${esc(c.name)}</td><td>${gBadge(c.g)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">لا يوجد</td></tr>';
+  document.getElementById('topGrowthFam').innerHTML = o.topGrowth.families.map(c => `<tr><td>${esc(c.name)}</td><td>${gBadge(c.g)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">لا يوجد</td></tr>';
+  document.getElementById('topDeclineCust').innerHTML = o.topDecline.customers.map(c => `<tr><td>${esc(c.name)}</td><td>${gBadge(c.g)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">لا يوجد</td></tr>';
+  document.getElementById('topDeclineFam').innerHTML = o.topDecline.families.map(c => `<tr><td>${esc(c.name)}</td><td>${gBadge(c.g)}</td></tr>`).join('') || '<tr><td colspan="2" class="muted">لا يوجد</td></tr>';
+}
+
+function renderDataQuality(o) {
+  document.getElementById('dqBox').innerHTML = `
+    <div class="dq-item">إجمالي السطور بالفترة الحالية: <b>${o.dataQuality.totalRecords}</b></div>
+    <div class="dq-item">بدون تصنيف فاميلي: <b>${o.dataQuality.missingFamily}</b></div>
+    <div class="dq-item">منتج محذوف/مفقود: <b>${o.dataQuality.missingProduct}</b></div>`;
+}
+
+function barsChartSvg(rows) {
+  if (rows.every(r => r.curValue === 0 && r.prevValue === 0)) return '<p class="muted">لا توجد بيانات لرسم المقارنة.</p>';
+  const H = 220, padL = 50, padB = 30, padT = 14, barW = 18, gap = 10;
+  const max = Math.max(...rows.map(r => Math.max(r.curValue, r.prevValue)), 1);
+  const yFor = (v) => H - padB - (v / max) * (H - padT - padB);
+  const groupW = barW * 2 + gap;
+  const totalW = rows.length * (groupW + 24) + padL;
+  let bars = '', labels = '';
+  rows.forEach((r, i) => {
+    const x0 = padL + i * (groupW + 24);
+    bars += `<rect x="${x0}" y="${yFor(r.prevValue)}" width="${barW}" height="${H - padB - yFor(r.prevValue)}" fill="#B9C6CC"><title>${esc(r.label)} ${r.prevValue.toLocaleString()} (سابق)</title></rect>`;
+    bars += `<rect x="${x0 + barW + 4}" y="${yFor(r.curValue)}" width="${barW}" height="${H - padB - yFor(r.curValue)}" fill="var(--primary,#1F5065)"><title>${esc(r.label)} ${r.curValue.toLocaleString()} (حالي)</title></rect>`;
+    labels += `<text x="${x0 + barW}" y="${H - 10}" font-size="11" text-anchor="middle" fill="var(--muted,#5B6572)">${esc(r.label)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${Math.max(600, totalW)} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%; height:${H}px;">${bars}${labels}</svg>`;
+}
+
+function renderTimeAnalysis() {
+  const rows = getSalesTimeBreakdown({ year: state.year, granularity: state.granularity, customerIds: state.customerIds, familyNames: state.familyNames, productIds: state.productIds });
+  document.getElementById('timeYearLabel').textContent = `${state.year} مقابل ${state.year - 1}`;
+  document.getElementById('thCurYear').textContent = state.year;
+  document.getElementById('thPrevYear').textContent = state.year - 1;
+  document.getElementById('timeChart').innerHTML = barsChartSvg(rows);
+  document.getElementById('timeTable').innerHTML = rows.map(r => `
+    <tr><td>${esc(r.label)}</td><td>${r.curValue.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${gBadge(r.growth)}</td></tr>`).join('');
+}
+
+// ---------------- جداول العملاء/الفاميلي/المنتج (المرحلة 2) ----------------
+function rankSort(rows, mode, valueKey, growthKey) {
+  const r = rows.slice();
+  if (mode === 'value') return r.sort((a, b) => b[valueKey] - a[valueKey]);
+  if (mode === 'qty') return r.sort((a, b) => b[valueKey.replace('Value', 'Qty')] - a[valueKey.replace('Value', 'Qty')]);
+  if (mode === 'growth') return r.filter(x => x[growthKey].pct !== null).sort((a, b) => b[growthKey].pct - a[growthKey].pct);
+  if (mode === 'decline') return r.filter(x => x[growthKey].pct !== null).sort((a, b) => a[growthKey].pct - b[growthKey].pct);
+  return r;
+}
+function applyTopN(rows, val) { return val === 'all' ? rows : rows.slice(0, Number(val)); }
+
+function renderCustomerTable() {
+  document.getElementById('custQtyPrevTh').textContent = `${state.year - 1} كمية`;
+  document.getElementById('custQtyCurTh').textContent = `${state.year} كمية`;
+  document.getElementById('custValPrevTh').textContent = `${state.year - 1} قيمة`;
+  document.getElementById('custValCurTh').textContent = `${state.year} قيمة`;
+
+  let rows = getCustomerAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, familyNames: state.familyNames, productIds: state.productIds });
+  const q = document.getElementById('custSearch').value.trim().toLowerCase();
+  if (q) rows = rows.filter(r => r.name.toLowerCase().includes(q) || (r.code || '').toLowerCase().includes(q));
+
+  const rank = document.getElementById('custRank').value;
+  if (rank === 'new') rows = rows.filter(r => r.status === 'جديد').sort((a, b) => b.curValue - a.curValue);
+  else if (rank === 'lost') rows = rows.filter(r => r.status === 'فقدناه').sort((a, b) => b.prevValue - a.prevValue);
+  else rows = rankSort(rows, rank, 'curValue', 'valueGrowth');
+
+  rows = applyTopN(rows, document.getElementById('custTopN').value);
+  document.getElementById('custEmpty').style.display = rows.length ? 'none' : 'block';
+  document.getElementById('custTable').innerHTML = rows.map(r => `
+    <tr><td>${esc(r.name)}</td><td>${esc(r.code || '-')}</td><td>${r.prevQty.toLocaleString()}</td><td>${r.curQty.toLocaleString()}</td><td>${gBadge(r.qtyGrowth)}</td>
+    <td>${r.prevValue.toLocaleString()}</td><td>${r.curValue.toLocaleString()}</td><td>${gBadge(r.valueGrowth)}</td><td>${esc(r.status)}</td></tr>`).join('');
+}
+
+function renderFamilyTable() {
+  document.getElementById('famQtyPrevTh').textContent = `${state.year - 1} كمية`;
+  document.getElementById('famQtyCurTh').textContent = `${state.year} كمية`;
+  document.getElementById('famValPrevTh').textContent = `${state.year - 1} قيمة`;
+  document.getElementById('famValCurTh').textContent = `${state.year} قيمة`;
+
+  let rows = getFamilyAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: state.customerIds });
+  rows = rankSort(rows, document.getElementById('famRank').value, 'curValue', 'valueGrowth');
+  rows = applyTopN(rows, document.getElementById('famTopN').value);
+  document.getElementById('famTable').innerHTML = rows.map(r => `
+    <tr><td>${esc(r.family)}</td><td>${r.prevQty.toLocaleString()}</td><td>${r.curQty.toLocaleString()}</td><td>${gBadge(r.qtyGrowth)}</td>
+    <td>${r.prevValue.toLocaleString()}</td><td>${r.curValue.toLocaleString()}</td><td>${gBadge(r.valueGrowth)}</td><td>${r.customerCount}</td><td>${r.productCount}</td></tr>`).join('');
+}
+
+function renderProductTable() {
+  document.getElementById('prodQtyPrevTh').textContent = `${state.year - 1} كمية`;
+  document.getElementById('prodQtyCurTh').textContent = `${state.year} كمية`;
+  document.getElementById('prodValPrevTh').textContent = `${state.year - 1} قيمة`;
+  document.getElementById('prodValCurTh').textContent = `${state.year} قيمة`;
+
+  let rows = getProductAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: state.customerIds, familyNames: state.familyNames });
+  const q = document.getElementById('prodSearch').value.trim().toLowerCase();
+  if (q) rows = rows.filter(r => r.name.toLowerCase().includes(q));
+
+  const rank = document.getElementById('prodRank').value;
+  if (rank === 'new') rows = rows.filter(r => r.note === 'جديد').sort((a, b) => b.curValue - a.curValue);
+  else if (rank === 'stopped') rows = rows.filter(r => r.note === 'توقف بيعه').sort((a, b) => b.prevValue - a.prevValue);
+  else if (rank === 'zero') rows = rows.filter(r => r.note === 'صفر مبيعات');
+  else rows = rankSort(rows, rank, 'curValue', 'valueGrowth');
+
+  rows = applyTopN(rows, document.getElementById('prodTopN').value);
+  document.getElementById('prodEmpty').style.display = rows.length ? 'none' : 'block';
+  document.getElementById('prodTable').innerHTML = rows.map(r => `
+    <tr><td>${esc(r.name)}</td><td>${esc(r.family)}</td><td>${r.prevQty.toLocaleString()}</td><td>${r.curQty.toLocaleString()}</td><td>${gBadge(r.qtyGrowth)}</td>
+    <td>${r.prevValue.toLocaleString()}</td><td>${r.curValue.toLocaleString()}</td><td>${gBadge(r.valueGrowth)}</td><td>${esc(r.note)}</td></tr>`).join('');
+}
+
+// ---------------- Customer × Family Matrix (المرحلة 3) ----------------
+function renderMatrix() {
+  const mat = getCustomerFamilyMatrix({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves });
+  const metric = document.getElementById('matrixMetric').value;
+  const q = document.getElementById('matrixSearch').value.trim().toLowerCase();
+  const rows = mat.rows.filter(r => !q || r.name.toLowerCase().includes(q));
+  const fmtCell = (c) => metric === 'qty' ? c.curQty.toLocaleString() : metric === 'growth' ? gBadge(c.growth) : c.curValue.toLocaleString();
+  const table = document.getElementById('matrixTable');
+  table.innerHTML = `
+    <thead><tr><th>العميل</th>${mat.families.map(f => `<th>${esc(f)}</th>`).join('')}<th>الإجمالي</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td>${esc(r.name)}</td>${mat.families.map(f => `<td>${fmtCell(r.cells[f])}</td>`).join('')}<td><b>${r.totalValue.toLocaleString()}</b></td></tr>`).join('')}</tbody>`;
+}
+document.getElementById('matrixSearch').addEventListener('input', renderMatrix);
+document.getElementById('matrixMetric').addEventListener('change', renderMatrix);
+
+// ---------------- Drill Down: عميل → فاميلي → منتج → شهري (المرحلة 3) ----------------
+const drill = { customerId: null, family: null, productId: null };
+
+function populateDrillCustomer() {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS).slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  const sel = document.getElementById('drillCustomer');
+  sel.innerHTML = `<option value="">اختر عميل...</option>` + customers.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+}
+
+function renderDrill() {
+  const body = document.getElementById('drillBody');
+  const crumb = document.getElementById('drillBreadcrumb');
+  const backBtn = document.getElementById('drillBack');
+  if (!drill.customerId) { body.innerHTML = '<p class="muted">اختر عميل فوق للبدء.</p>'; crumb.textContent = ''; backBtn.style.display = 'none'; return; }
+
+  const customer = getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === drill.customerId);
+  const parts = [customer ? customer.name : '?'];
+  if (drill.family) parts.push(drill.family);
+  if (drill.productId) {
+    const p = getAll(STORAGE_KEYS.PRODUCTS).find(x => x.id === drill.productId);
+    parts.push(p ? p.name : '?');
+  }
+  crumb.textContent = parts.join(' ← ');
+  backBtn.style.display = (drill.family || drill.productId) ? '' : 'none';
+
+  if (drill.productId) {
+    // المستوى 3: الأداء الشهري للمنتج عند هذا العميل
+    const rows = getSalesTimeBreakdown({ year: state.year, granularity: 'month', customerIds: [drill.customerId], productIds: [drill.productId] });
+    body.innerHTML = `
+      <div class="chart-wrap">${barsChartSvg(rows.map(r => ({ label: r.label, curValue: r.curValue, prevValue: r.prevValue })))}</div>
+      <table><thead><tr><th>الشهر</th><th>${state.year}</th><th>${state.year - 1}</th><th>النمو</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>${esc(r.label)}</td><td>${r.curValue.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${gBadge(r.growth)}</td></tr>`).join('')}</tbody></table>`;
+  } else if (drill.family) {
+    // المستوى 2: منتجات هذه الفاميلي عند هذا العميل
+    const rows = getProductAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: [drill.customerId], familyNames: [drill.family] })
+      .filter(r => r.curValue > 0 || r.prevValue > 0).sort((a, b) => b.curValue - a.curValue);
+    body.innerHTML = `<table><thead><tr><th>المنتج</th><th>${state.year - 1} كمية</th><th>${state.year} كمية</th><th>${state.year - 1} قيمة</th><th>${state.year} قيمة</th><th>النمو</th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="drill-row" data-product="${r.productId}" style="cursor:pointer;"><td>${esc(r.name)}</td><td>${r.prevQty.toLocaleString()}</td><td>${r.curQty.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${r.curValue.toLocaleString()}</td><td>${gBadge(r.valueGrowth)}</td></tr>`).join('')}</tbody></table>`;
+    body.querySelectorAll('.drill-row').forEach(tr => tr.addEventListener('click', () => { drill.productId = tr.dataset.product; renderDrill(); }));
+  } else {
+    // المستوى 1: فاميلي هذا العميل
+    const rows = getFamilyAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: [drill.customerId] })
+      .filter(r => r.curValue > 0 || r.prevValue > 0).sort((a, b) => b.curValue - a.curValue);
+    body.innerHTML = `<table><thead><tr><th>الفاميلي</th><th>${state.year - 1} كمية</th><th>${state.year} كمية</th><th>${state.year - 1} قيمة</th><th>${state.year} قيمة</th><th>النمو</th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="drill-row" data-family="${esc(r.family)}" style="cursor:pointer;"><td>${esc(r.family)}</td><td>${r.prevQty.toLocaleString()}</td><td>${r.curQty.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${r.curValue.toLocaleString()}</td><td>${gBadge(r.valueGrowth)}</td></tr>`).join('')}</tbody></table>`;
+    body.querySelectorAll('.drill-row').forEach(tr => tr.addEventListener('click', () => { drill.family = tr.dataset.family; renderDrill(); }));
   }
 }
 
-function renderAlerts(alerts) {
-  const box = document.getElementById('alertsBox');
-  if (!alerts.periodKey) { box.innerHTML = '<p class="muted">مفيش بيانات كفاية للمقارنة في هذه الدقة الزمنية.</p>'; return; }
-  const sections = [];
-  if (alerts.risingCustomers.length) {
-    sections.push(`<div class="alert-box ok"><strong>📈 عملاء صاعدين بشكل ملحوظ (مقارنة بـ ${esc(alerts.previousKey || '')})</strong>
-      <ul>${alerts.risingCustomers.map(c => `<li>${esc(c.name)} — <span class="pct up">+${c.deltaPct}%</span> (${c.current.toLocaleString()} مقابل ${c.previous.toLocaleString()})</li>`).join('')}</ul></div>`);
-  }
-  if (alerts.fallingCustomers.length) {
-    sections.push(`<div class="alert-box danger"><strong>📉 عملاء هابطين بشكل ملحوظ</strong>
-      <ul>${alerts.fallingCustomers.map(c => `<li>${esc(c.name)} — <span class="pct down">${c.deltaPct}%</span> (${c.current.toLocaleString()} مقابل ${c.previous.toLocaleString()})</li>`).join('')}</ul></div>`);
-  }
-  if (alerts.weakFamilies.length) {
-    sections.push(`<div class="alert-box"><strong>⚠ فاميلي ضعيفة محتاجة تركيز</strong>
-      <ul>${alerts.weakFamilies.map(f => `<li>${esc(f.name)} — <span class="pct down">${f.deltaPct}%</span> (${f.current.toLocaleString()} مقابل ${f.previous.toLocaleString()})</li>`).join('')}</ul></div>`);
-  }
-  box.innerHTML = sections.length ? sections.join('') : '<p class="muted">✅ مفيش تنبيهات ملحوظة في هذه الفترة.</p>';
+document.getElementById('drillCustomer').addEventListener('change', (e) => { drill.customerId = e.target.value || null; drill.family = null; drill.productId = null; renderDrill(); });
+document.getElementById('drillBack').addEventListener('click', () => {
+  if (drill.productId) drill.productId = null;
+  else if (drill.family) drill.family = null;
+  renderDrill();
+});
+
+// ---------------- البيانات التفصيلية: بحث + ترتيب + ترقيم صفحات + أعمدة + تصدير (المرحلة 4) ----------------
+const detailState = { sortCol: 'date', sortDir: 'desc', page: 1, pageSize: 50 };
+const DETAIL_COLS = [
+  { key: 'date', label: 'التاريخ', get: (r) => r.date.slice(0, 10) },
+  { key: 'customer', label: 'العميل', get: (r) => r.customerName },
+  { key: 'product', label: 'المنتج', get: (r) => r.productName },
+  { key: 'family', label: 'الفاميلي', get: (r) => r.family },
+  { key: 'qty', label: 'الكمية', get: (r) => r.qty, numeric: true },
+  { key: 'value', label: 'القيمة', get: (r) => r.value, numeric: true },
+];
+
+function visibleCols() {
+  return DETAIL_COLS.filter(c => document.querySelector(`.colToggle[data-col="${c.key}"]`).checked);
 }
+
+function getFilteredDetailRows() {
+  let rows = getDetailedSalesLines({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: state.customerIds, familyNames: state.familyNames, productIds: state.productIds });
+  const q = document.getElementById('detailSearch').value.trim().toLowerCase();
+  if (q) rows = rows.filter(r => r.customerName.toLowerCase().includes(q) || r.productName.toLowerCase().includes(q) || r.family.toLowerCase().includes(q));
+  const col = DETAIL_COLS.find(c => c.key === detailState.sortCol);
+  rows.sort((a, b) => {
+    const va = col.get(a), vb = col.get(b);
+    const cmp = col.numeric ? va - vb : String(va).localeCompare(String(vb), 'ar');
+    return detailState.sortDir === 'asc' ? cmp : -cmp;
+  });
+  return rows;
+}
+
+function renderDetailTable() {
+  const allRows = getFilteredDetailRows();
+  const cols = visibleCols();
+  const totalPages = Math.max(1, Math.ceil(allRows.length / detailState.pageSize));
+  detailState.page = Math.min(detailState.page, totalPages);
+  const pageRows = allRows.slice((detailState.page - 1) * detailState.pageSize, detailState.page * detailState.pageSize);
+
+  const table = document.getElementById('detailTable');
+  table.innerHTML = `
+    <thead><tr>${cols.map(c => `<th class="sortable" data-col="${c.key}">${esc(c.label)}${detailState.sortCol === c.key ? `<span class="arrow">${detailState.sortDir === 'asc' ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
+    <tbody>${pageRows.map(r => `<tr>${cols.map(c => `<td>${c.numeric ? Number(c.get(r)).toLocaleString() : esc(c.get(r))}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  table.querySelectorAll('th.sortable').forEach(th => th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (detailState.sortCol === col) detailState.sortDir = detailState.sortDir === 'asc' ? 'desc' : 'asc';
+    else { detailState.sortCol = col; detailState.sortDir = 'desc'; }
+    renderDetailTable();
+  }));
+
+  document.getElementById('detailCount').textContent = `${allRows.length.toLocaleString()} سطر`;
+  document.getElementById('detailPageLabel').textContent = `صفحة ${detailState.page} من ${totalPages}`;
+  document.getElementById('detailPrev').disabled = detailState.page <= 1;
+  document.getElementById('detailNext').disabled = detailState.page >= totalPages;
+}
+
+function csvCell(v) { return `"${String(v).replace(/"/g, '""')}"`; }
+function exportDetailCsv() {
+  const rows = getFilteredDetailRows();
+  const cols = visibleCols();
+  const lines = [cols.map(c => csvCell(c.label)).join(',')];
+  rows.forEach(r => lines.push(cols.map(c => csvCell(c.get(r))).join(',')));
+  const csv = '\uFEFF' + lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `تحليل-مبيعات-${state.year}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('detailSearch').addEventListener('input', () => { detailState.page = 1; renderDetailTable(); });
+document.querySelectorAll('.colToggle').forEach(cb => cb.addEventListener('change', renderDetailTable));
+document.getElementById('detailPrev').addEventListener('click', () => { detailState.page--; renderDetailTable(); });
+document.getElementById('detailNext').addEventListener('click', () => { detailState.page++; renderDetailTable(); });
+document.getElementById('btnExportCsv').addEventListener('click', exportDetailCsv);
+document.getElementById('btnPrint').addEventListener('click', () => window.print());
 
 function refresh() {
-  const a = getAnalytics({ level: level(), levelValue: document.getElementById('f_levelValue').value || null, granularity: granularity(), periodKey: document.getElementById('f_period').value || null, vatRate: vat() });
-  document.getElementById('trendTitle').textContent = `📈 الاتجاه عبر الزمن${a.comparison.currentLabel ? ' — ' + a.comparison.currentLabel : ''}`;
-  document.getElementById('trendChart').innerHTML = lineChartSvg(a.trend);
-  renderKpis(a);
-  renderBreakdown(a);
-  const alerts = getSmartAlerts({ granularity: granularity() === 'all' ? 'month' : granularity(), periodKey: granularity() === 'all' ? null : (document.getElementById('f_period').value || null), vatRate: vat() });
-  renderAlerts(alerts);
+  const o = getSalesOverview({
+    year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves,
+    customerIds: state.customerIds, familyNames: state.familyNames, productIds: state.productIds,
+  });
+  renderKpis(o);
+  renderSummary(o);
+  renderGrowthTables(o);
+  renderDataQuality(o);
+  renderTimeAnalysis();
+  renderCustomerTable();
+  renderFamilyTable();
+  renderProductTable();
+  renderMatrix();
+  renderDrill();
+  detailState.page = 1;
+  renderDetailTable();
 }
 
-document.getElementById('f_level').addEventListener('change', () => { populateLevelValue(); refresh(); });
-document.getElementById('f_levelValue').addEventListener('change', refresh);
-document.getElementById('f_granularity').addEventListener('change', () => { populatePeriod(); refresh(); });
-document.getElementById('f_period').addEventListener('change', refresh);
-document.getElementById('f_vat').addEventListener('change', () => { populatePeriod(); refresh(); });
+document.getElementById('custSearch').addEventListener('input', renderCustomerTable);
+['custRank', 'custTopN'].forEach(id => document.getElementById(id).addEventListener('change', renderCustomerTable));
+['famRank', 'famTopN'].forEach(id => document.getElementById(id).addEventListener('change', renderFamilyTable));
+document.getElementById('prodSearch').addEventListener('input', renderProductTable);
+['prodRank', 'prodTopN'].forEach(id => document.getElementById(id).addEventListener('change', renderProductTable));
 
-populateLevelValue();
-populatePeriod();
+document.getElementById('f_year').addEventListener('change', (e) => { state.year = Number(e.target.value); refresh(); });
+document.getElementById('f_periodType').addEventListener('change', (e) => { state.periodType = e.target.value; state.months = []; state.quarters = []; state.halves = []; renderPeriodSub(); refresh(); });
+document.getElementById('f_compare').addEventListener('change', (e) => { state.compare = e.target.checked; refresh(); });
+document.getElementById('f_granularity').addEventListener('change', (e) => { state.granularity = e.target.value; renderTimeAnalysis(); });
+document.getElementById('btnRefresh').addEventListener('click', refresh);
+document.getElementById('btnResetFilters').addEventListener('click', () => {
+  state.customerIds = []; state.familyNames = []; state.productIds = [];
+  msCustomer.reset(); msFamily.reset(); msProduct.reset();
+  state.periodType = 'ytd'; document.getElementById('f_periodType').value = 'ytd'; renderPeriodSub();
+  state.compare = true; document.getElementById('f_compare').checked = true;
+  refresh();
+});
+document.getElementById('btnClearHistorical').addEventListener('click', () => {
+  if (!confirm('تأكيد مسح كل البيانات التاريخية المستوردة (الأوردرات + حركات الكشف + المنتجات اللي اتسجلت تلقائياً)؟ الفواتير اللي دخلتها إنت بنفسك مش هتتأثر. العملية دي مينفعش تتراجع فيها غير بنسخة احتياطية.')) return;
+  const r = clearHistoricalImports();
+  alert(`تم المسح ✅\nطلبيات: ${r.removedOrders}\nحركات كشف: ${r.removedAdj}\nمنتجات تلقائية: ${r.removedProd}\nأرصدة اتصفّرت: ${r.resetBalances}`);
+  initFilters();
+  renderPeriodSub();
+  refresh();
+});
+
+initFilters();
+populateDrillCustomer();
+renderPeriodSub();
 refresh();
 </script>
 </body>

@@ -656,15 +656,18 @@ function recordSale({ customerId, items, repId = null, discountRate: requestedRa
  * - الصنف اللي كوده مش موجود في الكتالوج الحالي بيتسجّل تلقائياً كمنتج "مؤرشف" (بسعر الاستيراد كسعر مبدئي)
  *   عشان القيمة متضيعش، وبيترجع في autoCreatedProducts عشان تراجعه.
  */
-function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14 } = {}) {
+function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14, updateMode = false } = {}) {
   const STATUS_MAP = { Completed: 'delivered', 'Not Delivered': 'confirmed', 'Partially Delivered': 'release' };
-  const existingOrderNumbers = new Set(getAll(STORAGE_KEYS.SALES_ORDERS).map((o) => String(o.orderNumber || '').trim()).filter(Boolean));
+  const existingOrders = getAll(STORAGE_KEYS.SALES_ORDERS);
+  // في وضع التحديث: الطلبيات المستوردة تاريخياً بس هي اللي ممكن تتستبدل — أي فاتورة دخّلتها إنت يدوياً مش بتتلمس أبداً
+  const updatableByNumber = new Map(existingOrders.filter((o) => o.historicalImport).map((o) => [String(o.orderNumber || '').trim(), o]));
+  const existingOrderNumbers = new Set(existingOrders.map((o) => String(o.orderNumber || '').trim()).filter(Boolean));
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
   const customerByCode = new Map(customers.filter((c) => c.code).map((c) => [String(c.code).trim(), c]));
   let products = getAll(STORAGE_KEYS.PRODUCTS);
   const productBySku = new Map(products.filter((p) => p.sku).map((p) => [String(p.sku).trim().toLowerCase(), p]));
 
-  const res = { imported: 0, skippedDuplicate: 0, skippedCustomerNotFound: [], autoCreatedProducts: [], totalValue: 0 };
+  const res = { imported: 0, updated: 0, skippedDuplicate: 0, skippedCustomerNotFound: [], autoCreatedProducts: [], totalValue: 0 };
 
   // تجميع الأسطر في طلبيات بحسب رقم الـ Sales Document
   const groups = new Map();
@@ -677,7 +680,11 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14 } = {}) 
   });
 
   groups.forEach((lines, salesDoc) => {
-    if (existingOrderNumbers.has(salesDoc)) { res.skippedDuplicate++; return; }
+    const historicalMatch = updatableByNumber.get(salesDoc); // فاتورة مستوردة تاريخياً بنفس الرقم، لو موجودة
+    const isManualDuplicate = existingOrderNumbers.has(salesDoc) && !historicalMatch; // رقم موجود لكنه فاتورة يدوية، ميتلمسش أبداً
+    if (isManualDuplicate) { res.skippedDuplicate++; return; }
+    const updatingExisting = updateMode ? historicalMatch : null;
+    if (historicalMatch && !updateMode) { res.skippedDuplicate++; return; } // موجودة تاريخياً ووضع التحديث مقفول
     const relevant = lines.filter((l) => l.status !== 'Not Relevant');
     if (relevant.length === 0) return; // طلبية كل بنودها Not Relevant، متسجلش حاجة
 
@@ -689,6 +696,7 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14 } = {}) 
       const unitPrice = Math.round(l.netPrice * (1 + vatRate / 100) * 100) / 100;
       if (!product) {
         product = addProduct({ name: l.materialDesc || l.material, sku: l.material, category: 'مؤرشف | غير موجود في القايمة الحالية', basePrice: unitPrice, openingStock: 0, reorderLevel: 0, description: 'نشأ تلقائياً من استيراد أوردرات تاريخية' });
+        updateRecord(STORAGE_KEYS.PRODUCTS, product.id, { historicalImport: true });
         productBySku.set(l.material.toLowerCase(), product);
         res.autoCreatedProducts.push(`${l.material} — ${l.materialDesc || l.material}`);
       }
@@ -697,14 +705,20 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14 } = {}) 
 
     const subtotal = items.reduce((s, i) => s + i.qty * i.unitPrice, 0);
     const orderStatus = items.every((i) => i.status === 'delivered') ? 'delivered' : 'confirmed';
-    const order = addRecord(STORAGE_KEYS.SALES_ORDERS, {
+    const fields = {
       customerId: customer.id, repId: null, items, subtotal, cashDiscount: false, discountRate: 0, discountAmount: 0, total: subtotal,
       date: relevant[0].date, invoiceNo: salesDoc, orderNumber: salesDoc, sentByEmail: false, orderNumberUpdatedAt: relevant[0].date,
       archived: true, status: orderStatus, historicalImport: true,
-    });
-    if (!order) return;
-    existingOrderNumbers.add(salesDoc);
-    res.imported++;
+    };
+    if (updatingExisting) {
+      updateRecord(STORAGE_KEYS.SALES_ORDERS, updatingExisting.id, fields);
+      res.updated++;
+    } else {
+      const order = addRecord(STORAGE_KEYS.SALES_ORDERS, fields);
+      if (!order) return;
+      existingOrderNumbers.add(salesDoc);
+      res.imported++;
+    }
     res.totalValue += subtotal;
   });
 
@@ -1263,6 +1277,342 @@ function getAnalyticsLines(vatRate = 14) {
   return lines;
 }
 
+/**
+ * مسح كل البيانات التاريخية المستوردة (أوردرات + حركات كشف + منتجات اتسجلت تلقائياً)
+ * عشان تقدر تعيد الاستيراد من جديد لو محتاج ترجع لسنين أكتر ورا أو تصحّح حاجة.
+ * الفواتير والبيانات اللي دخلتها إنت بنفسك يدوياً مش بتتأثر خالص.
+ * الرصيد الافتتاحي بيترجع صفر للعملاء اللي كان متحط لهم من الاستيراد (اللي ليهم openingBalanceDate).
+ */
+function clearHistoricalImports() {
+  const ordersBefore = getAll(STORAGE_KEYS.SALES_ORDERS);
+  const remainingOrders = ordersBefore.filter((o) => !o.historicalImport);
+  const removedOrders = ordersBefore.length - remainingOrders.length;
+  saveAll(STORAGE_KEYS.SALES_ORDERS, remainingOrders);
+
+  const adjBefore = getAll(STORAGE_KEYS.LEDGER_ADJUSTMENTS);
+  const remainingAdj = adjBefore.filter((a) => !a.historicalImport);
+  const removedAdj = adjBefore.length - remainingAdj.length;
+  saveAll(STORAGE_KEYS.LEDGER_ADJUSTMENTS, remainingAdj);
+
+  const prodBefore = getAll(STORAGE_KEYS.PRODUCTS);
+  const remainingProd = prodBefore.filter((p) => !p.historicalImport);
+  const removedProd = prodBefore.length - remainingProd.length;
+  saveAll(STORAGE_KEYS.PRODUCTS, remainingProd);
+
+  let resetBalances = 0;
+  getAll(STORAGE_KEYS.CUSTOMERS).forEach((c) => {
+    if (c.openingBalanceDate) { updateRecord(STORAGE_KEYS.CUSTOMERS, c.id, { openingBalance: 0, openingBalanceDate: null }); resetBalances++; }
+  });
+
+  return { removedOrders, removedAdj, removedProd, resetBalances };
+}
+
+// ------------------------------------------------------------
+// تحليل المبيعات (Sales Analysis) — المرحلة 1: KPIs + نمو + تحليل زمني + فلاتر حقيقية
+// مقارنة عادلة (YTD مقابل نفس الفترة بالظبط في السنة اللي فاتت)، مبني فوق getAnalyticsLines.
+// ------------------------------------------------------------
+
+/** كل السنين اللي فيها بيانات فعلاً، تصاعدياً */
+function getSalesYears(vatRate = 14) {
+  const years = new Set(getAnalyticsLines(vatRate).map((l) => new Date(l.date).getFullYear()).filter((y) => !isNaN(y)));
+  return [...years].sort();
+}
+
+/** آخر تاريخ فيه بيانات فعلياً لسنة معيّنة — أساس منطق YTD العادل */
+function lastDataDateInYear(lines, year) {
+  const inYear = lines.filter((l) => new Date(l.date).getFullYear() === year);
+  if (inYear.length === 0) return null;
+  return inYear.reduce((m, l) => (l.date > m ? l.date : m), inYear[0].date);
+}
+
+/**
+ * بيحسب نطاق تاريخ (from/to) لفترة معيّنة من سنة، ونفس الفترة بالظبط في السنة اللي قبلها للمقارنة العادلة.
+ * periodType: 'full' | 'ytd' | 'month' (months=[1..12]) | 'quarter' (quarters=[1..4]) | 'half' (halves=[1,2]) | 'custom' (from/to)
+ */
+function resolvePeriodRange(year, periodType, params, lines) {
+  const pad = (n) => String(n).padStart(2, '0');
+  let from, to, label;
+  if (periodType === 'full') {
+    from = `${year}-01-01`; to = `${year}-12-31`; label = `${year} (كامل السنة)`;
+  } else if (periodType === 'ytd') {
+    const last = lastDataDateInYear(lines, year);
+    from = `${year}-01-01`; to = last ? last.slice(0, 10) : `${year}-01-01`;
+    label = `${year} YTD (حتى ${to})`;
+  } else if (periodType === 'month') {
+    const months = (params.months && params.months.length) ? params.months : [...Array(12)].map((_, i) => i + 1);
+    const minM = Math.min(...months), maxM = Math.max(...months);
+    from = `${year}-${pad(minM)}-01`;
+    const lastDay = new Date(year, maxM, 0).getDate();
+    to = `${year}-${pad(maxM)}-${pad(lastDay)}`;
+    label = months.length === 1 ? periodLabel(`${year}-${pad(minM)}`, 'month') : `${periodLabel(`${year}-${pad(minM)}`, 'month')} → ${periodLabel(`${year}-${pad(maxM)}`, 'month')}`;
+  } else if (periodType === 'quarter') {
+    const qs = (params.quarters && params.quarters.length) ? params.quarters : [1, 2, 3, 4];
+    const minQ = Math.min(...qs), maxQ = Math.max(...qs);
+    from = `${year}-${pad((minQ - 1) * 3 + 1)}-01`;
+    const endMonth = maxQ * 3, lastDay = new Date(year, endMonth, 0).getDate();
+    to = `${year}-${pad(endMonth)}-${pad(lastDay)}`;
+    label = qs.length === 1 ? `Q${minQ} ${year}` : `Q${minQ}-Q${maxQ} ${year}`;
+  } else if (periodType === 'half') {
+    const hs = (params.halves && params.halves.length) ? params.halves : [1, 2];
+    const minH = Math.min(...hs), maxH = Math.max(...hs);
+    from = minH === 1 ? `${year}-01-01` : `${year}-07-01`;
+    to = maxH === 1 ? `${year}-06-30` : `${year}-12-31`;
+    label = hs.length === 1 ? `H${minH} ${year}` : `H1-H2 ${year}`;
+  } else if (periodType === 'custom') {
+    from = params.from || `${year}-01-01`; to = params.to || `${year}-12-31`;
+    label = `${from} → ${to}`;
+  } else {
+    from = `${year}-01-01`; to = `${year}-12-31`; label = String(year);
+  }
+
+  // نفس الفترة بالظبط سنة قبل كده
+  const shiftYear = (dateStr, delta) => { const [y, m, d] = dateStr.split('-'); return `${Number(y) + delta}-${m}-${d}`; };
+  return { from, to, label, prevFrom: shiftYear(from, -1), prevTo: shiftYear(to, -1), prevYear: year - 1 };
+}
+
+function inRange(dateStr, from, to) { return dateStr >= from && dateStr <= (to.length === 10 ? to + 'T23:59:59' : to); }
+
+function filterLines(lines, { from, to, customerIds, familyNames, productIds }) {
+  return lines.filter((l) =>
+    inRange(l.date, from, to) &&
+    (!customerIds || !customerIds.length || customerIds.includes(l.customerId)) &&
+    (!familyNames || !familyNames.length || familyNames.includes(l.family)) &&
+    (!productIds || !productIds.length || productIds.includes(l.productId))
+  );
+}
+
+function aggregateLines(lines) {
+  const customers = new Set(), products = new Set(), families = new Set();
+  let value = 0, qty = 0;
+  lines.forEach((l) => { value += l.value; qty += l.qty; customers.add(l.customerId); products.add(l.productId); families.add(l.family); });
+  return { value: Math.round(value * 100) / 100, qty, customers: customers.size, products: products.size, families: families.size, customerIds: customers, productIds: products };
+}
+
+/** نسبة النمو، مع التعامل مع الصفر: N/A لو السابق صفر والحالي صفر، New لو السابق صفر والحالي فيه قيمة */
+function growthOf(current, previous) {
+  if (previous === 0) return current === 0 ? { pct: null, label: 'N/A' } : { pct: null, label: 'جديد' };
+  const pct = Math.round(((current - previous) / previous) * 10000) / 100;
+  return { pct, label: `${pct >= 0 ? '+' : ''}${pct}%` };
+}
+
+/**
+ * نظرة عامة شاملة لفترة معيّنة: KPIs الحالية، مقارنة عادلة بنفس الفترة في السنة اللي فاتت،
+ * جودة البيانات، وملخص تنفيذي مُولّد ديناميكياً من الأرقام الفعلية.
+ */
+function getSalesOverview({ year, periodType = 'ytd', months = [], quarters = [], halves = [], from = null, to = null, customerIds = [], familyNames = [], productIds = [], vatRate = 14 } = {}) {
+  const allLines = getAnalyticsLines(vatRate);
+  const range = resolvePeriodRange(year, periodType, { months, quarters, halves, from, to }, allLines);
+
+  const curLines = filterLines(allLines, { from: range.from, to: range.to, customerIds, familyNames, productIds });
+  const prevLines = filterLines(allLines, { from: range.prevFrom, to: range.prevTo, customerIds, familyNames, productIds });
+
+  const cur = aggregateLines(curLines);
+  const prev = aggregateLines(prevLines);
+
+  const avgPerCustomer = cur.customers > 0 ? Math.round((cur.value / cur.customers) * 100) / 100 : 0;
+
+  // تصنيف العملاء: جديد / فقدناه / مستمر (بالنسبة لنطاق الفلتر الحالي، بغض النظر عن فترة الفلتر الزمنية)
+  const curCustSet = cur.customerIds, prevCustSet = prev.customerIds;
+  const newCustomers = [...curCustSet].filter((id) => !prevCustSet.has(id));
+  const lostCustomers = [...prevCustSet].filter((id) => !curCustSet.has(id));
+  const existingCustomers = [...curCustSet].filter((id) => prevCustSet.has(id));
+
+  // أكبر نمو/تراجع لإدراجه في الملخص التنفيذي
+  const custGrowth = aggregateBy(curLines, (l) => l.customerId, 'customer').map((c) => {
+    const prevVal = prevLines.filter((l) => l.customerId === c.key).reduce((s, l) => s + l.value, 0);
+    return { ...c, g: growthOf(c.value, prevVal) };
+  }).filter((c) => c.g.pct !== null).sort((a, b) => b.g.pct - a.g.pct);
+  const famGrowth = aggregateBy(curLines, (l) => l.family, 'family').map((f) => {
+    const prevVal = prevLines.filter((l) => l.family === f.key).reduce((s, l) => s + l.value, 0);
+    return { ...f, g: growthOf(f.value, prevVal) };
+  }).filter((f) => f.g.pct !== null).sort((a, b) => b.g.pct - a.g.pct);
+
+  const valueGrowth = growthOf(cur.value, prev.value);
+  const qtyGrowth = growthOf(cur.qty, prev.qty);
+  const customersGrowth = growthOf(cur.customers, prev.customers);
+
+  // ملخص تنفيذي ديناميكي
+  const summary = [];
+  if (valueGrowth.pct !== null) summary.push(`المبيعات ${valueGrowth.pct >= 0 ? 'زادت' : 'قلّت'} بنسبة ${Math.abs(valueGrowth.pct)}% عن ${range.prevYear} (نفس الفترة).`);
+  if (qtyGrowth.pct !== null) summary.push(`الكمية ${qtyGrowth.pct >= 0 ? 'زادت' : 'قلّت'} بنسبة ${Math.abs(qtyGrowth.pct)}%.`);
+  if (customersGrowth.pct !== null) summary.push(`عدد العملاء النشطين ${customersGrowth.pct >= 0 ? 'زاد' : 'قلّ'} بنسبة ${Math.abs(customersGrowth.pct)}%.`);
+  if (famGrowth.length) summary.push(`أعلى فاميلي نمواً: ${famGrowth[0].name} (${famGrowth[0].g.label}).`);
+  if (custGrowth.length) summary.push(`أعلى عميل نمواً: ${custGrowth[0].name} (${custGrowth[0].g.label}).`);
+  if (newCustomers.length) summary.push(`${newCustomers.length} عميل جديد اشترى في الفترة دي ومكانش بيشتري في نفس الفترة السنة اللي فاتت.`);
+  if (lostCustomers.length) summary.push(`${lostCustomers.length} عميل كان نشط السنة اللي فاتت وتوقف في نفس الفترة دي.`);
+
+  // جودة البيانات
+  const totalRecords = curLines.length;
+  const missingFamily = curLines.filter((l) => l.family === 'بدون تصنيف').length;
+  const missingProduct = curLines.filter((l) => l.productName === '(منتج محذوف)').length;
+
+  return {
+    range,
+    current: { ...cur, avgPerCustomer },
+    previous: prev,
+    growth: { value: valueGrowth, qty: qtyGrowth, customers: customersGrowth },
+    customerClassification: { new: newCustomers.length, lost: lostCustomers.length, existing: existingCustomers.length },
+    topGrowth: { customers: custGrowth.slice(0, 5), families: famGrowth.slice(0, 5) },
+    topDecline: { customers: custGrowth.slice(-5).reverse(), families: famGrowth.slice(-5).reverse() },
+    summary,
+    dataQuality: { totalRecords, missingFamily, missingProduct },
+  };
+}
+
+// ------------------------------------------------------------
+// تحليل المبيعات — المرحلة 2: جداول العملاء/الفاميلي/المنتج بالتفصيل + Ranking
+// ------------------------------------------------------------
+
+function periodRangeOnly(year, periodType, params, lines) { return resolvePeriodRange(year, periodType, params, lines); }
+
+/** صفوف تحليل كل عميل (حتى لو مالوش بيع في الفترة الحالية، عشان العملاء المفقودين يظهروا) */
+function getCustomerAnalysisRows({ year, periodType = 'ytd', months = [], quarters = [], halves = [], familyNames = [], productIds = [], vatRate = 14 } = {}) {
+  const allLines = getAnalyticsLines(vatRate);
+  const range = periodRangeOnly(year, periodType, { months, quarters, halves }, allLines);
+  const curLines = filterLines(allLines, { from: range.from, to: range.to, familyNames, productIds });
+  const prevLines = filterLines(allLines, { from: range.prevFrom, to: range.prevTo, familyNames, productIds });
+  const curAgg = aggregateBy(curLines, (l) => l.customerId, 'customer');
+  const prevAgg = aggregateBy(prevLines, (l) => l.customerId, 'customer');
+  const prevMap = new Map(prevAgg.map((c) => [c.key, c]));
+  const curMap = new Map(curAgg.map((c) => [c.key, c]));
+  const allIds = new Set([...curMap.keys(), ...prevMap.keys()]);
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const cMap = new Map(customers.map((c) => [c.id, c]));
+  return [...allIds].map((id) => {
+    const cur = curMap.get(id) || { value: 0, qty: 0 };
+    const prev = prevMap.get(id) || { value: 0, qty: 0 };
+    const customer = cMap.get(id);
+    const status = cur.value > 0 && prev.value > 0 ? 'مستمر' : cur.value > 0 ? 'جديد' : 'فقدناه';
+    return {
+      customerId: id, name: customer ? customer.name : '(محذوف)', code: customer ? customer.code || '' : '',
+      curValue: cur.value, prevValue: prev.value, curQty: cur.qty, prevQty: prev.qty,
+      valueGrowth: growthOf(cur.value, prev.value), qtyGrowth: growthOf(cur.qty, prev.qty), status,
+    };
+  });
+}
+
+/** صفوف تحليل كل فاميلي، شاملة عدد العملاء وعدد المنتجات داخل كل فاميلي في الفترة الحالية */
+function getFamilyAnalysisRows({ year, periodType = 'ytd', months = [], quarters = [], halves = [], customerIds = [], vatRate = 14 } = {}) {
+  const allLines = getAnalyticsLines(vatRate);
+  const range = periodRangeOnly(year, periodType, { months, quarters, halves }, allLines);
+  const curLines = filterLines(allLines, { from: range.from, to: range.to, customerIds });
+  const prevLines = filterLines(allLines, { from: range.prevFrom, to: range.prevTo, customerIds });
+  const curAgg = aggregateBy(curLines, (l) => l.family, 'family');
+  const prevMap = new Map(aggregateBy(prevLines, (l) => l.family, 'family').map((f) => [f.key, f]));
+  const curMap = new Map(curAgg.map((f) => [f.key, f]));
+  const allFams = new Set([...curMap.keys(), ...prevMap.keys()]);
+  return [...allFams].map((fam) => {
+    const cur = curMap.get(fam) || { value: 0, qty: 0 };
+    const prev = prevMap.get(fam) || { value: 0, qty: 0 };
+    const custCount = new Set(curLines.filter((l) => l.family === fam).map((l) => l.customerId)).size;
+    const prodCount = new Set(curLines.filter((l) => l.family === fam).map((l) => l.productId)).size;
+    return {
+      family: fam, curValue: cur.value, prevValue: prev.value, curQty: cur.qty, prevQty: prev.qty,
+      valueGrowth: growthOf(cur.value, prev.value), qtyGrowth: growthOf(cur.qty, prev.qty),
+      customerCount: custCount, productCount: prodCount,
+    };
+  });
+}
+
+/** صفوف تحليل كل منتج، مع ملاحظة (جديد / توقف بيعه / صفر مبيعات) */
+function getProductAnalysisRows({ year, periodType = 'ytd', months = [], quarters = [], halves = [], customerIds = [], familyNames = [], vatRate = 14 } = {}) {
+  const allLines = getAnalyticsLines(vatRate);
+  const range = periodRangeOnly(year, periodType, { months, quarters, halves }, allLines);
+  const curLines = filterLines(allLines, { from: range.from, to: range.to, customerIds, familyNames });
+  const prevLines = filterLines(allLines, { from: range.prevFrom, to: range.prevTo, customerIds, familyNames });
+  const curAgg = aggregateBy(curLines, (l) => l.productId, 'product');
+  const prevAgg = aggregateBy(prevLines, (l) => l.productId, 'product');
+  const prevMap = new Map(prevAgg.map((p) => [p.key, p]));
+  const curMap = new Map(curAgg.map((p) => [p.key, p]));
+  const famOf = new Map([...curLines, ...prevLines].map((l) => [l.productId, l.family]));
+  const allIds = new Set([...curMap.keys(), ...prevMap.keys()]);
+  return [...allIds].map((id) => {
+    const cur = curMap.get(id) || { value: 0, qty: 0, name: null };
+    const prev = prevMap.get(id) || { value: 0, qty: 0, name: null };
+    const note = cur.value > 0 && prev.value === 0 ? 'جديد' : cur.value === 0 && prev.value > 0 ? 'توقف بيعه' : cur.value === 0 && prev.value === 0 ? 'صفر مبيعات' : '';
+    return {
+      productId: id, name: cur.name || prev.name || '?', family: famOf.get(id) || 'بدون تصنيف',
+      curValue: cur.value, prevValue: prev.value, curQty: cur.qty, prevQty: prev.qty,
+      valueGrowth: growthOf(cur.value, prev.value), qtyGrowth: growthOf(cur.qty, prev.qty), note,
+    };
+  });
+}
+
+// ------------------------------------------------------------
+// تحليل المبيعات — المرحلة 3: Customer × Family Matrix + Drill Down
+// ------------------------------------------------------------
+
+/** مصفوفة عميل × فاميلي: لكل عميل عنده بيع في الفترة، قيمة/كمية/نمو كل فاميلي */
+function getCustomerFamilyMatrix({ year, periodType = 'ytd', months = [], quarters = [], halves = [], vatRate = 14 } = {}) {
+  const allLines = getAnalyticsLines(vatRate);
+  const range = periodRangeOnly(year, periodType, { months, quarters, halves }, allLines);
+  const curLines = filterLines(allLines, { from: range.from, to: range.to });
+  const prevLines = filterLines(allLines, { from: range.prevFrom, to: range.prevTo });
+  const families = getFamilies();
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+
+  function buildMap(lines) {
+    const map = new Map();
+    lines.forEach((l) => {
+      if (!map.has(l.customerId)) map.set(l.customerId, new Map());
+      const fm = map.get(l.customerId);
+      if (!fm.has(l.family)) fm.set(l.family, { value: 0, qty: 0 });
+      const c = fm.get(l.family);
+      c.value += l.value; c.qty += l.qty;
+    });
+    return map;
+  }
+  const curMap = buildMap(curLines), prevMap = buildMap(prevLines);
+
+  const rows = [...curMap.keys()].map((cid) => {
+    const customer = customers.find((c) => c.id === cid);
+    const cells = {};
+    families.forEach((fam) => {
+      const cur = curMap.get(cid)?.get(fam) || { value: 0, qty: 0 };
+      const prev = prevMap.get(cid)?.get(fam) || { value: 0, qty: 0 };
+      cells[fam] = { curValue: Math.round(cur.value * 100) / 100, curQty: cur.qty, prevValue: Math.round(prev.value * 100) / 100, prevQty: prev.qty, growth: growthOf(cur.value, prev.value) };
+    });
+    const totalValue = families.reduce((s, f) => s + cells[f].curValue, 0);
+    return { customerId: cid, name: customer ? customer.name : '(محذوف)', cells, totalValue: Math.round(totalValue * 100) / 100 };
+  }).sort((a, b) => b.totalValue - a.totalValue);
+
+  return { families, rows };
+}
+
+/** كل سطور المبيعات المفلترة بالفترة والفلاتر الحالية — أساس جدول البيانات التفصيلي والتصدير */
+function getDetailedSalesLines({ year, periodType = 'ytd', months = [], quarters = [], halves = [], customerIds = [], familyNames = [], productIds = [], vatRate = 14 } = {}) {
+  const allLines = getAnalyticsLines(vatRate);
+  const range = periodRangeOnly(year, periodType, { months, quarters, halves }, allLines);
+  return filterLines(allLines, { from: range.from, to: range.to, customerIds, familyNames, productIds })
+    .map((l) => ({ ...l, value: Math.round(l.value * 100) / 100 }));
+}
+
+/** جدول مقارنة شهر-بشهر بين سنتين لنفس الفلاتر (للرسم البياني والجدول الزمني) */
+function getSalesTimeBreakdown({ year, granularity = 'month', customerIds = [], familyNames = [], productIds = [], vatRate = 14 } = {}) {
+  const allLines = getAnalyticsLines(vatRate);
+  const filtered = allLines.filter((l) =>
+    (!customerIds || !customerIds.length || customerIds.includes(l.customerId)) &&
+    (!familyNames || !familyNames.length || familyNames.includes(l.family)) &&
+    (!productIds || !productIds.length || productIds.includes(l.productId))
+  );
+  const buckets = granularity === 'quarter' ? 4 : granularity === 'half' ? 2 : 12;
+  const keyFor = (l) => {
+    const d = new Date(l.date);
+    if (granularity === 'month') return d.getMonth() + 1;
+    if (granularity === 'quarter') return Math.ceil((d.getMonth() + 1) / 3);
+    return d.getMonth() < 6 ? 1 : 2;
+  };
+  const rows = [];
+  for (let b = 1; b <= buckets; b++) {
+    const curB = filtered.filter((l) => new Date(l.date).getFullYear() === year && keyFor(l) === b);
+    const prevB = filtered.filter((l) => new Date(l.date).getFullYear() === year - 1 && keyFor(l) === b);
+    const cur = aggregateLines(curB), prev = aggregateLines(prevB);
+    const label = granularity === 'month' ? periodLabel(`${year}-${String(b).padStart(2, '0')}`, 'month').split(' ')[0] : granularity === 'quarter' ? `Q${b}` : `H${b}`;
+    rows.push({ bucket: b, label, curValue: cur.value, prevValue: prev.value, curQty: cur.qty, prevQty: prev.qty, growth: growthOf(cur.value, prev.value) });
+  }
+  return rows;
+}
+
 /** كل الفترات اللي فيها بيانات فعلاً لدقة معيّنة، الأحدث أولاً — لتعبئة قايمة اختيار الفترة */
 function getAvailablePeriods(granularity, vatRate = 14) {
   if (granularity === 'all') return [];
@@ -1591,6 +1941,8 @@ export {
   // التارجت الشهري (KPIs)
   addKpi, getKpiProgress, getMonthlyScorecard, productFamily,
   getFamilies, getAnalytics, getSmartAlerts, getAvailablePeriods,
+  getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
+  getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
 };
