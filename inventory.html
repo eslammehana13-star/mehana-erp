@@ -64,9 +64,48 @@
 <div id="alertBox"></div>
 
 <div class="card">
+  <h2>🗂 شجرة تصنيف المنتجات (القسم ← الفاميلي)</h2>
+  <p class="muted">الأقسام المعتمدة: بوتاجازات / MDA / SDA. كل منتج ليه قسم وفاميلي، والتصنيف ده هو اللي هيتحسب عليه التارجت والتحليل.</p>
+  <div id="treeBox"></div>
+  <button type="button" id="btnAutoClass" style="margin-top:6px;">🪄 إعادة تصنيف تلقائي حسب الشجرة</button>
+  <p class="muted">بيوزّع المنتجات (النشطة والمؤرشفة) على: بوتاجازات — MDA ← (ثلاجات، ديب فريزر، بيلت إن ← مسطح/فرن، غسالات ملابس، غسالات أطباق، شفاطات) — SDA ← (مكانس، تحضير الطعام، مشروبات). اللي مش قادر يحدده بيتعرضلك تصنفه يدوي.</p>
+  <h3 style="font-size:14px; margin:14px 0 6px;">إعادة تصنيف جماعية (من ملف)</h3>
+  <p class="muted">الصق سطر لكل منتج: <b>الكود ← القسم ← الفاميلي</b> (المطابقة بالكود، وبتشمل المنتجات المؤرشفة كمان).</p>
+  <textarea id="classPaste" rows="4" placeholder="مثال:&#10;KDN43NL2E8&#9;MDA&#9;ثلاجات&#10;HGV1F8Y52S&#9;بوتاجازات&#9;بوتاجازات" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnClassImport" style="margin-top:8px;">🗂 تطبيق التصنيف</button>
+  <h3 style="font-size:14px; margin:14px 0 6px;">تصنيف يدوي</h3>
+  <label style="font-size:13px;"><input type="checkbox" id="classShowAll" style="flex:none; width:auto;"> عرض كل المنتجات (مش بس غير المصنفة)</label>
+  <div style="overflow-x:auto;"><table><thead><tr><th>الكود</th><th>المنتج</th><th>الحالة</th><th>القسم</th><th>الفاميلي</th></tr></thead><tbody id="classTable"></tbody></table></div>
+  <datalist id="familyList"></datalist>
+  <button type="button" id="btnClassSave" style="margin-top:8px;">💾 حفظ التصنيفات المعدّلة</button>
+</div>
+
+<div class="card">
+  <h2>🧨 مسح وإعادة ضبط</h2>
+  <p class="muted">لو عايز تبدأ بقايمة أسعار جديدة: (1) امسح قايمة الأسعار — اللي اتباع قبل كده بيتأرشف للتحليل بس، واللي ما اتباعش بيتمسح. (2) حمّل القايمة الجديدة من كارت الاستيراد، وأي كود مطابق بيرجع نشط بالاسم والسعر الجديد. لو عايز تمسح البيانات التاريخية كمان وتعيد استيرادها، امسحها <b>الأول</b> عشان المنتجات اللي كانت مستخدمة بس فيها تتمسح بدل ما تتأرشف.</p>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" class="danger" id="btnWipeCatalog">🗑 مسح قايمة الأسعار الحالية</button>
+    <button type="button" class="danger" id="btnWipeHistorical">🗑 مسح البيانات التاريخية المستوردة</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>🧹 مزامنة الكتالوج مع قايمة الأسعار الحالية</h2>
+  <p class="muted">لو منتجات قديمة دخلت قايمة الفواتير بالغلط: الصق هنا <b>قايمة الأسعار الحالية</b> (آخر شهر). أي منتج مش فيها بيتأرشف: يختفي من قوايم الفواتير ويفضل محسوب في المبيعات التاريخية والتحليل. والمنتجات اللي في القايمة بترجع نشطة، ومعاها بيتصلّح اسمها وسعرها وتصنيفها لو اتغيّروا بالغلط.</p>
+  <textarea id="syncList" rows="4" placeholder="الصق قايمة الأسعار الحالية كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:6px;">
+    <input type="checkbox" id="syncRefresh" checked style="flex:none; width:auto;"> حدّث كمان الاسم والسعر والتصنيف من نفس القايمة (بيرجّع اللي اتغيّر بالغلط)
+  </label>
+  <button type="button" id="btnSyncCatalog" style="margin-top:8px;">🧹 مزامنة</button>
+</div>
+
+<div class="card">
   <h2>🔄 تحديث قائمة الأسعار الشهرية</h2>
   <p class="muted">كل شهر: الصق ملف القايمة الجديدة (بنفس الأعمدة). المنتجات الموجودة بيتحدّث سعرها ووصفها ومعاها تصنيفها، والجديدة بتتضاف. الأرصدة والفواتير القديمة مبتتغيرش.</p>
   <textarea id="updPrices" rows="5" placeholder="الصق هنا القايمة الجديدة كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:8px;" title="للقوايم القديمة (سنة فاتت): بيسمّي ويصنّف بس المنتجات اللي اتسجلت تلقائياً من الاستيراد التاريخي (تصنيف مؤرشف)، وكتالوجك الحالي وأسعاره ما بيتلمسوش خالص.">
+    <input type="checkbox" id="updArchivedOnly" style="flex:none; width:auto;"> قايمة قديمة: سمّي وصنّف المنتجات المؤرشفة بس (آمن — مش بيلمس الكتالوج الحالي)
+  </label>
   <button type="button" id="btnUpdPrices" style="margin-top:8px;">🔄 تحديث الأسعار</button>
 </div>
 
@@ -148,6 +187,7 @@
   <div class="toolbar">
     <h2>الأصناف والأرصدة الحالية</h2>
     <div>
+      <label style="font-size:13px; margin-inline-end:8px;"><input type="checkbox" id="showArchived" style="flex:none; width:auto;"> عرض المنتجات المؤرشفة</label>
       <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
       <input type="file" id="importFile" accept=".json" style="display:none">
       <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
@@ -164,7 +204,8 @@
 
 <script type="module">
 import {
-  esc, inPeriod, getReportOrders, importProducts,
+  esc, inPeriod, getReportOrders, importProducts, isProductHidden, getActiveProducts, syncCatalogToList,
+  DIVISIONS, productDivision, productFamily, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog, clearHistoricalImports,
   initStorage, addProduct, getAll, STORAGE_KEYS,
   getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
   addStockStatusUpdate, importStockStatus, getLatestStockStatus,
@@ -178,7 +219,74 @@ function refresh() {
   renderAlerts();
   renderProductsTable();
   renderProductSelect();
+  renderClassification();
 }
+
+// ---------------- شجرة التصنيف + إعادة التصنيف ----------------
+function renderClassification() {
+  const tree = getCategoryTree();
+  const all = getAll(STORAGE_KEYS.PRODUCTS);
+  const hiddenCount = all.filter(isProductHidden).length;
+  const unclassified = all.filter(p => !isClassified(p));
+  const nodeHtml = (n, depth) => `
+    <details ${depth === 0 ? 'open' : ''} style="margin:${depth === 0 ? 6 : 2}px 0 ${depth === 0 ? 6 : 2}px ${depth * 18}px;">
+      <summary style="cursor:pointer; ${depth === 0 ? 'font-weight:700;' : ''}">${esc(n.name)} <span class="muted">(${n.count})</span></summary>
+      ${n.children.map(c => nodeHtml(c, depth + 1)).join('')}
+      ${n.products.length ? `<div class="muted" style="padding-inline-start:${(depth + 1) * 18}px; font-size:12px;">${n.products.slice(0, 40).map(p => esc(p.sku || p.name)).join('، ')}${n.products.length > 40 ? '...' : ''}</div>` : ''}
+    </details>`;
+  document.getElementById('treeBox').innerHTML = (tree.length ? tree.map(n => nodeHtml(n, 0)).join('') : '<p class="muted">لا توجد منتجات نشطة.</p>')
+    + `<p class="muted">منتجات مؤرشفة (للتحليل بس): ${hiddenCount} | منتجات غير مصنفة (النشطة والمؤرشفة): ${unclassified.length}</p>`;
+
+  document.getElementById('familyList').innerHTML = [...new Set(all.filter(isClassified).map(p => productSubPath(p.category)).filter(Boolean))].map(f => `<option value="${esc(f)}">`).join('');
+  const showAll = document.getElementById('classShowAll').checked;
+  const rows = (showAll ? all : unclassified).slice().sort((a, b) => (a.sku || a.name).localeCompare(b.sku || b.name));
+  document.getElementById('classTable').innerHTML = rows.map(p => {
+    const div = productDivision(p.category);
+    return `<tr data-id="${p.id}"><td>${esc(p.sku || '-')}</td><td>${esc(p.name)}</td><td class="muted">${isProductHidden(p) ? 'مؤرشف' : 'نشط'}</td>
+      <td><select class="cls-div"><option value="">—</option>${DIVISIONS.map(d => `<option value="${esc(d)}" ${d === div ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></td>
+      <td><input type="text" class="cls-fam" list="familyList" value="${esc(isClassified(p) ? productSubPath(p.category) : '')}" placeholder="فاميلي أو بيلت إن > مسطح" style="min-width:170px;"></td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="muted">كل المنتجات مصنفة ✅</td></tr>';
+}
+
+document.getElementById('classShowAll').addEventListener('change', renderClassification);
+document.getElementById('btnAutoClass').addEventListener('click', () => {
+  if (!confirm('تأكيد إعادة التصنيف التلقائي لكل المنتجات؟ الفواتير والمبيعات ما بتتأثرش، بس بيتغيّر قسم/فاميلي المنتجات.')) return;
+  const r = applyAutoClassification();
+  refresh();
+  alert(`تم ✅\nاتغيّر تصنيف: ${r.changed}\nمن غير تغيير: ${r.unchanged}${r.unresolved.length ? `\n⚠ مش قادر أحدد (${r.unresolved.length}) — صنّفهم يدوي من الجدول تحت: ${r.unresolved.slice(0, 12).join('، ')}` : ''}`);
+});
+document.getElementById('btnClassImport').addEventListener('click', () => {
+  const box = document.getElementById('classPaste');
+  if (!box.value.trim()) { alert('الصق التصنيف الأول'); return; }
+  const r = importClassification(box.value);
+  box.value = '';
+  refresh();
+  alert(`تم تصنيف ${r.updated} منتج ✅${r.notFound.length ? `\n⚠ أكواد مش موجودة (${r.notFound.length}): ${r.notFound.slice(0, 10).join('، ')}` : ''}${r.badDivision.length ? `\n⚠ قسم غير معتمد (${r.badDivision.length}): ${r.badDivision.slice(0, 8).join('، ')} — المسموح: ${DIVISIONS.join(' / ')}` : ''}`);
+});
+document.getElementById('btnClassSave').addEventListener('click', () => {
+  let n = 0;
+  document.querySelectorAll('#classTable tr[data-id]').forEach(tr => {
+    const div = tr.querySelector('.cls-div').value;
+    const fam = tr.querySelector('.cls-fam').value.trim();
+    if (!div) return;
+    const p = getAll(STORAGE_KEYS.PRODUCTS).find(x => x.id === tr.dataset.id);
+    if (p && (productDivision(p.category) !== div || productSubPath(p.category) !== fam.replace(/\s*[>›]\s*/g, ' > '))) { setProductClassification(p.id, div, fam); n++; }
+  });
+  refresh();
+  alert(n ? `تم حفظ تصنيف ${n} منتج ✅` : 'مفيش تعديلات للحفظ — اختار القسم لكل منتج الأول.');
+});
+document.getElementById('btnWipeCatalog').addEventListener('click', () => {
+  if (!confirm('تأكيد مسح قايمة الأسعار الحالية؟ المنتج اللي اتباع قبل كده هيتأرشف (للتحليل بس) واللي ما اتباعش هيتمسح نهائياً. الأفضل تعمل نسخة احتياطية الأول.')) return;
+  const r = archiveOrDeleteCatalog();
+  refresh();
+  alert(`تم ✅\nاتأرشف (للتحليل بس): ${r.archived}\nاتمسح نهائياً: ${r.deleted}\nدلوقتي حمّل قايمة الأسعار الجديدة.`);
+});
+document.getElementById('btnWipeHistorical').addEventListener('click', () => {
+  if (!confirm('تأكيد مسح كل البيانات التاريخية المستوردة (الأوردرات وحركات الكشف والمنتجات اللي اتسجلت تلقائياً)؟ فواتيرك اليدوية ما بتتأثرش. مينفعش تتراجع غير بنسخة احتياطية.')) return;
+  const r = clearHistoricalImports();
+  refresh();
+  alert(`تم المسح ✅\nطلبيات: ${r.removedOrders}\nحركات كشف: ${r.removedAdj}\nمنتجات تلقائية: ${r.removedProd}\nأرصدة اتصفّرت: ${r.resetBalances}`);
+});
 
 function renderAlerts() {
   const alerts = getLowStockAlerts();
@@ -194,7 +302,8 @@ function renderAlerts() {
 let editingProductId = null;
 
 function renderProductsTable() {
-  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const showArchived = document.getElementById('showArchived')?.checked;
+  const products = getAll(STORAGE_KEYS.PRODUCTS).filter(p => showArchived || !isProductHidden(p));
   const stockMap = getStockMap();
   const tbody = document.getElementById('productsTable');
   document.getElementById('emptyState').style.display = products.length ? 'none' : 'block';
@@ -298,7 +407,7 @@ function renderProductsTable() {
 }
 
 function renderProductSelect() {
-  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const products = getActiveProducts();
   const options = products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   document.getElementById('t_product').innerHTML = options;
   document.getElementById('st_product').innerHTML = options;
@@ -399,12 +508,29 @@ document.getElementById('btnBulkProducts').addEventListener('click', () => {
   alert(`تم إضافة ${r.added} منتج ✅` + (r.skipped.length ? `\nاتخطّيت ${r.skipped.length} مكرر: ${r.skipped.slice(0, 15).join('، ')}` : ''));
 });
 
+document.getElementById('showArchived').addEventListener('change', renderProductsTable);
+document.getElementById('btnSyncCatalog').addEventListener('click', () => {
+  const box = document.getElementById('syncList');
+  if (!box.value.trim()) { alert('الصق قايمة الأسعار الحالية الأول'); return; }
+  if (!confirm('تأكيد المزامنة؟ أي منتج (له كود) مش في القايمة دي هيتأرشف ويختفي من قوايم الفواتير (بيفضل في التحليل والمبيعات التاريخية).')) return;
+  const r = syncCatalogToList(box.value, { refresh: document.getElementById('syncRefresh').checked });
+  box.value = '';
+  refresh();
+  alert(`تمت المزامنة ✅\nمنتجات في القايمة: ${r.inListCount}\nاتأرشفت (مش في القايمة): ${r.hidden}\nرجعت نشطة: ${r.restored}\nاتحدّث اسمها/سعرها: ${r.updated}${r.added ? `\nمنتجات جديدة اتضافت: ${r.added}` : ''}${r.untouchedNoSku ? `\nمنتجات من غير كود (ما اتلمستش): ${r.untouchedNoSku}` : ''}`);
+});
+
 document.getElementById('btnUpdPrices').addEventListener('click', () => {
   const box = document.getElementById('updPrices');
   if (!box.value.trim()) { alert('الصق القايمة الأول'); return; }
-  const r = importProducts(box.value, { update: true });
+  const archivedOnly = document.getElementById('updArchivedOnly').checked;
+  const r = importProducts(box.value, { update: true, archivedOnly });
   box.value = '';
   refresh();
+  if (archivedOnly) {
+    const left = getAll(STORAGE_KEYS.PRODUCTS).filter(p => p.historicalImport);
+    alert(`تم تسمية وتصنيف ${r.updated} منتج مؤرشف ✅\nمنتجات حالية اتخطّت (متلمسوش): ${r.skippedCurrent}\nأكواد في القايمة مش موجودة في النظام: ${r.notInSystem}\n${left.length ? `لسه ${left.length} منتج مؤرشف من غير اسم/تصنيف حقيقي: ${left.slice(0, 12).map(p => p.sku).join('، ')}${left.length > 12 ? '...' : ''}` : '🎉 كل المنتجات المؤرشفة اتسمّت.'}`);
+    return;
+  }
   let msg = `تم تحديث ${r.updated} منتج (${r.priceChanges.length} منهم اتغيّر سعره) وإضافة ${r.added} منتج جديد ✅`;
   if (r.withOffer.length) msg += `\n⚠ ${r.withOffer.length} منتج عليه عرض شغال لسه سعر العرض زي ما هو — راجعه: ${r.withOffer.slice(0, 8).join('، ')}`;
   if (r.missing.length) msg += `\nℹ ${r.missing.length} منتج عندك مش موجود في القايمة الجديدة (يمكن اتوقف): ${r.missing.slice(0, 8).join('، ')}`;

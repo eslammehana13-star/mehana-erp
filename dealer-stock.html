@@ -89,7 +89,7 @@
 <script type="module">
 import {
   esc, initStorage, getAll, STORAGE_KEYS,
-  importDealerStock, getDealerStock, getDealersStockOverview,
+  importDealerStock, getDealerStock, getDealersStockOverview, isProductHidden,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -174,7 +174,7 @@ document.getElementById('btnImportDealerStock').addEventListener('click', () => 
 });
 
 document.getElementById('btnCopyCodes').addEventListener('click', async () => {
-  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const products = getAll(STORAGE_KEYS.PRODUCTS).filter(p => !isProductHidden(p));
   const text = products.map(p => `${p.sku || '-'}\t${p.name}`).join('\n');
   try {
     await navigator.clipboard.writeText(text);

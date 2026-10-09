@@ -205,24 +205,35 @@ import {
   updateOrderNumber, getRenewalDaysLeft, getOrdersNeedingRenewal,
   updateOrderItems, voidOrder, recordReturn, getOrderReturns, getOrderAuditLog,
   getActiveOrders, startNewMonth,
-  updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders,
+  updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
 } from './erp-data-layer.js';
 
-/** قايمة اختيار أصناف مقسّمة بالفاميلي (optgroup) ومعاها السعر في كل صنف */
+/** نص المنتج في القايمة: كود — وصف — سعر (الكود بيتضاف لو الاسم مش بادئ بيه) */
+function productLabel(p) {
+  const name = String(p.name || '');
+  const sku = String(p.sku || '').trim();
+  return sku && !name.toLowerCase().startsWith(sku.toLowerCase()) ? `${sku} — ${name}` : name;
+}
+
+/** قايمة اختيار أصناف على شكل شجرة: القسم › الفاميلي (optgroup) وتحتها كود — وصف — سعر */
 function productOptionsHtml(products, { selectedId = null, priceFn = (p) => p.basePrice } = {}) {
   const groups = new Map();
   products.forEach(p => {
-    const fam = productFamily(p.category);
-    if (!groups.has(fam)) groups.set(fam, []);
-    groups.get(fam).push(p);
+    const path = productPath(p.category);
+    const div = path[0];
+    const label = path.join(' › ');
+    if (!groups.has(label)) groups.set(label, { div, items: [] });
+    groups.get(label).items.push(p);
   });
+  const order = (d) => { const k = DIVISIONS.indexOf(d); return k === -1 ? 99 : k; };
   return [...groups.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0], 'ar'))
-    .map(([fam, items]) => `<optgroup label="${esc(fam)}">${items.map(p =>
-      `<option value="${p.id}" data-stock="${getProductStock(p.id)}" data-price="${priceFn(p) || 0}" ${selectedId === p.id ? 'selected' : ''}>${esc(p.name)} — ${(priceFn(p) || 0).toLocaleString()} ج.م</option>`
+    .sort((a, b) => order(a[1].div) - order(b[1].div) || a[0].localeCompare(b[0], 'ar'))
+    .map(([label, g]) => `<optgroup label="${esc(label)}">${g.items.sort((x, y) => (x.sku || x.name).localeCompare(y.sku || y.name)).map(p =>
+      `<option value="${p.id}" data-stock="${getProductStock(p.id)}" data-price="${priceFn(p) || 0}" ${selectedId === p.id ? 'selected' : ''}>${esc(productLabel(p))} — ${(priceFn(p) || 0).toLocaleString()} ج.م${String(p.category || '').includes('Traditional') ? ' · Traditional' : ''}</option>`
     ).join('')}</optgroup>`).join('');
 }
+
 
 const STATUS_META = {
   unconfirmed: 'Unconfirmed',
@@ -272,9 +283,9 @@ function buildItemsPanelHtml(order) {
         <tbody id="itemsBody-${order.id}">${itemsRowsHtml}</tbody>
       </table>
       <div style="display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;">
-        <select class="add-item-product" id="addItemSel-${order.id}">${productOptionsHtml(products, { priceFn: (p) => getEffectivePrice(p.id) })}</select>
+        <select class="add-item-product" id="addItemSel-${order.id}">${productOptionsHtml(products.filter(p => !isProductHidden(p)), { priceFn: (p) => getEffectivePrice(p.id) })}</select>
         <input type="number" class="add-item-qty" id="addItemQty-${order.id}" value="1" min="1" style="width:70px;">
-        <input type="number" class="add-item-price" id="addItemPrice-${order.id}" value="${getEffectivePrice(products[0]?.id) || 0}" min="0" step="0.01" style="width:90px;" title="السعر — بيتغيّر تلقائياً مع الصنف، عدّله لو عايز">
+        <input type="number" class="add-item-price" id="addItemPrice-${order.id}" value="${getEffectivePrice(products.filter(p => !isProductHidden(p))[0]?.id) || 0}" min="0" step="0.01" style="width:90px;" title="السعر — بيتغيّر تلقائياً مع الصنف، عدّله لو عايز">
         <button class="secondary" data-add-item="${order.id}">+ إضافة صنف للطلبية</button>
         <label style="display:flex; align-items:center; gap:4px; font-size:13px;">
           نسبة الخصم %
@@ -452,7 +463,7 @@ function renderCustomerSelects() {
 }
 
 function addLineItemRow(preset = null) {
-  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const products = getAll(STORAGE_KEYS.PRODUCTS).filter(p => !isProductHidden(p));
   const id = `line_${lineCount++}`;
   const div = document.createElement('div');
   div.className = 'line-item';
@@ -542,7 +553,7 @@ document.getElementById('addLine').addEventListener('click', () => addLineItemRo
 document.getElementById('btnBulkImport').addEventListener('click', () => {
   const text = document.getElementById('bulkPaste').value.trim();
   if (!text) return;
-  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const products = getAll(STORAGE_KEYS.PRODUCTS).filter(p => !isProductHidden(p));
   const notFound = [];
   let addedCount = 0;
 

@@ -696,7 +696,7 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14, updateM
       const unitPrice = Math.round(l.netPrice * (1 + vatRate / 100) * 100) / 100;
       if (!product) {
         product = addProduct({ name: l.materialDesc || l.material, sku: l.material, category: 'مؤرشف | غير موجود في القايمة الحالية', basePrice: unitPrice, openingStock: 0, reorderLevel: 0, description: 'نشأ تلقائياً من استيراد أوردرات تاريخية' });
-        updateRecord(STORAGE_KEYS.PRODUCTS, product.id, { historicalImport: true });
+        updateRecord(STORAGE_KEYS.PRODUCTS, product.id, { historicalImport: true, discontinued: true });
         productBySku.set(l.material.toLowerCase(), product);
         res.autoCreatedProducts.push(`${l.material} — ${l.materialDesc || l.material}`);
       }
@@ -1071,22 +1071,195 @@ function importCustomers(text) {
 }
 
 /** الأعمدة: الاسم | الكود | التصنيف | السعر | الرصيد الافتتاحي | حد الطلب | الوحدة — المكرر (بالكود، أو بالاسم لو مفيش كود) بيتخطى */
-function importProducts(text, { update = false } = {}) {
+/**
+ * archivedOnly: وضع آمن لقوايم أسعار قديمة (سنة فاتت مثلاً) — بيحدّث بس المنتجات اللي اتسجلت تلقائياً من الاستيراد التاريخي
+ * (الاسم والتصنيف/الفاميلي والوصف والسعر)، وبيشيل عنها علامة "مؤرشف" عشان تفضل بعد أي مسح. كتالوجك الحالي ما بيتلمسش
+ * ومفيش إضافة منتجات جديدة، فالأسعار القديمة مستحيل تكتب فوق الجديدة.
+ */
+/** منتج مؤرشف/متوقف: بيتحسب في التقارير والمبيعات التاريخية بس، ومش بيظهر في قوايم اختيار الفواتير */
+function isProductHidden(p) { return !!(p && (p.discontinued || p.historicalImport)); }
+function getActiveProducts() { return getAll(STORAGE_KEYS.PRODUCTS).filter((p) => !isProductHidden(p)); }
+
+// ------------------------------------------------------------
+// شجرة التصنيف: القسم (بوتاجازات / MDA / SDA) ← الفاميلي. بتتخزن في category بصيغة "قسم | فاميلي"
+// (والبوتاجازات وحدها "بوتاجازات") وعلامة Traditional بتفضل علامة جانبية مش مستوى في الشجرة.
+// أي مستوى في الشجرة بيشتغل كهدف أو KPI، لأن hasCat بيطابق أي وسم في المسار.
+// ------------------------------------------------------------
+const DIVISIONS = ['بوتاجازات', 'MDA', 'SDA'];
+
+/** مسار التصنيف كاملاً بدون علامة Traditional، مثال: ['MDA','بيلت إن','مسطح'] */
+function productPath(category) {
+  const tags = String(category || '').split('|').map((x) => x.trim()).filter((x) => x && x !== 'Traditional');
+  return tags.length ? tags : ['بدون تصنيف'];
+}
+function productDivision(category) { return productPath(category)[0]; }
+/** المسار بعد القسم، مثال: "بيلت إن > مسطح" (فاضي للبوتاجازات) */
+function productSubPath(category) { return productPath(category).slice(1).join(' > '); }
+function isTraditional(category) { return String(category || '').split('|').map((x) => x.trim()).includes('Traditional'); }
+
+/** القسم صالح لو من الأقسام المعتمدة (غير كده المنتج "غير مصنف" ومحتاج إعادة تصنيف) */
+function isClassified(p) { return DIVISIONS.includes(productDivision(p.category)); }
+
+/** بيبني category من القسم ومسار فرعي (نص بفواصل > أو › أو مصفوفة) */
+function buildCategory(division, subPath, traditional) {
+  const subs = (Array.isArray(subPath) ? subPath : String(subPath || '').split(/[>›]/)).map((x) => String(x).trim()).filter(Boolean);
+  const parts = [division, ...subs.filter((x, i) => !(i === 0 && x === division))];
+  if (traditional) parts.push('Traditional');
+  return parts.join(' | ');
+}
+
+function setProductClassification(productId, division, subPath) {
+  const p = getAll(STORAGE_KEYS.PRODUCTS).find((x) => x.id === productId);
+  if (!p) return false;
+  updateRecord(STORAGE_KEYS.PRODUCTS, productId, { category: buildCategory(division, subPath, isTraditional(p.category)) });
+  return true;
+}
+
+/** تصنيف جماعي. الأعمدة: الكود | القسم | الفاميلي أو المسار (مثلاً: بيلت إن > مسطح). المطابقة بالكود وبتشمل المؤرشف */
+function importClassification(text) {
+  const bySku = new Map(getAll(STORAGE_KEYS.PRODUCTS).filter((p) => p.sku).map((p) => [p.sku.trim().toLowerCase(), p]));
+  const res = { updated: 0, notFound: [], badDivision: [] };
+  parseRows(text).forEach(([code, division, family]) => {
+    if (!code || ['كود', 'code', 'sku'].includes(code.trim().toLowerCase())) return;
+    const p = bySku.get(code.trim().toLowerCase());
+    if (!p) { res.notFound.push(code); return; }
+    const div = DIVISIONS.find((d) => d.toLowerCase() === String(division || '').trim().toLowerCase());
+    if (!div) { res.badDivision.push(`${code} (${division || 'فاضي'})`); return; }
+    setProductClassification(p.id, div, family);
+    res.updated++;
+  });
+  return res;
+}
+
+/** المسار المقترح لمنتج: من تصنيفه الحالي لو معروف، وإلا من وصفه/اسمه. null لو مش قادر يحدد */
+function suggestClassification(p) {
+  const tags = productPath(p.category);
+  const text = `${p.name || ''} ${p.description || ''}`.toLowerCase();
+  const hasFridge = /ثلاجة|fridge|refrigerator/.test(text), hasFreezer = /فريزر|freezer/.test(text);
+  if (DIVISIONS.includes(tags[0])) {
+    if (tags[0] === 'بوتاجازات') return ['بوتاجازات'];
+    if (tags[0] === 'SDA') return tags;
+    if (tags[0] === 'MDA') {
+      if (tags.includes('بيلت إن') || tags.includes('ديب فريزر')) return tags;
+      const last = tags[tags.length - 1];
+      if (last === 'ثلاجات') return hasFreezer && !hasFridge ? ['MDA', 'ديب فريزر'] : ['MDA', 'ثلاجات'];
+      if (last === 'مواقد') return ['MDA', 'بيلت إن', 'مسطح'];
+      if (last === 'أفران') return ['MDA', 'بيلت إن', 'فرن'];
+      return tags;
+    }
+  }
+  const rules = [
+    [/microwave|ميكرو/, ['SDA', 'تحضير الطعام']],
+    [/dishwasher|غسالة اطباق|غسالة أطباق/, ['MDA', 'غسالات أطباق']],
+    [/washing machine|frontloader|غسالة/, ['MDA', 'غسالات ملابس']],
+    [/chimney|hood|شفاط/, ['MDA', 'شفاطات']],
+    [/gas range|range cooker|cooker|بوتاجاز/, ['بوتاجازات']],
+    [/hob|cooktop|مسطح|موقد|مواقد/, ['MDA', 'بيلت إن', 'مسطح']],
+    [/oven|فرن/, ['MDA', 'بيلت إن', 'فرن']],
+    [/fridge|refrigerator|ثلاجة/, ['MDA', 'ثلاجات']],
+    [/freezer|فريزر/, ['MDA', 'ديب فريزر']],
+    [/vacuum|مكنسة/, ['SDA', 'مكانس']],
+    [/coffee|kettle|juicer|قهوة|غلاية|عصارة/, ['SDA', 'مشروبات']],
+    [/blender|mixer|mincer|processor|kitchen machine|grinder|مفرمة|خلاط|عجان/, ['SDA', 'تحضير الطعام']],
+  ];
+  const hit = rules.find(([re]) => re.test(text));
+  return hit ? hit[1] : null;
+}
+
+/** إعادة تصنيف تلقائي لكل المنتجات (نشطة ومؤرشفة) حسب الشجرة. اللي مش قادر يحدده بيرجع في unresolved للتصنيف اليدوي */
+function applyAutoClassification() {
+  const res = { changed: 0, unchanged: 0, unresolved: [] };
+  getAll(STORAGE_KEYS.PRODUCTS).forEach((p) => {
+    const path = suggestClassification(p);
+    if (!path) { res.unresolved.push(p.sku || p.name); return; }
+    const category = buildCategory(path[0], path.slice(1), isTraditional(p.category));
+    if (category === p.category) { res.unchanged++; return; }
+    updateRecord(STORAGE_KEYS.PRODUCTS, p.id, { category });
+    res.changed++;
+  });
+  return res;
+}
+
+/** شجرة التصنيف متداخلة بأي عمق: [{name, count, children:[...], products:[...]}] (النشطة بس افتراضياً) */
+function getCategoryTree({ includeHidden = false } = {}) {
+  const root = new Map();
+  getAll(STORAGE_KEYS.PRODUCTS).filter((p) => includeHidden || !isProductHidden(p)).forEach((p) => {
+    let level = root, node = null;
+    productPath(p.category).forEach((tag) => {
+      if (!level.has(tag)) level.set(tag, { name: tag, count: 0, products: [], kids: new Map() });
+      node = level.get(tag); node.count++; level = node.kids;
+    });
+    node.products.push(p);
+  });
+  const order = (d) => { const i = DIVISIONS.indexOf(d); return i === -1 ? 99 : i; };
+  const toArr = (m, top) => [...m.values()]
+    .sort((a, b) => (top ? order(a.name) - order(b.name) : 0) || a.name.localeCompare(b.name, 'ar'))
+    .map((n) => ({ name: n.name, count: n.count, products: n.products, children: toArr(n.kids, false) }));
+  return toArr(root, true);
+}
+
+/**
+ * مسح قايمة الأسعار الحالية: المنتج اللي اتباع في أي فاتورة بيتأرشف (يتشال من الفواتير الجديدة ويفضل للتحليل بس)،
+ * واللي عمره ما اتباع بيتمسح نهائياً. بعدها حمّل القايمة الجديدة، وأي كود مطابق بيرجع نشط بالاسم والسعر الجديد.
+ */
+function archiveOrDeleteCatalog() {
+  const res = { archived: 0, deleted: 0 };
+  getAll(STORAGE_KEYS.PRODUCTS).forEach((p) => {
+    if (isProductUsed(p.id)) {
+      if (!p.discontinued) { updateRecord(STORAGE_KEYS.PRODUCTS, p.id, { discontinued: true }); res.archived++; }
+    } else {
+      deleteRecord(STORAGE_KEYS.PRODUCTS, p.id); res.deleted++;
+    }
+  });
+  return res;
+}
+
+/**
+ * مزامنة الكتالوج مع قايمة الأسعار الحالية: أي منتج (له كود) مش موجود في القايمة بيتأرشف (يختفي من الفواتير ويفضل في التحليل)،
+ * واللي موجود فيها بيرجع نشط. refresh=true بيحدّث كمان الاسم والتصنيف والسعر من نفس القايمة (بيصلّح أي تغيير جه بالغلط من قايمة قديمة).
+ * المنتجات من غير كود ما بتتلمسش.
+ */
+function syncCatalogToList(text, { refresh = true } = {}) {
+  const res = { updated: 0, added: 0, hidden: 0, restored: 0, untouchedNoSku: 0, inListCount: 0 };
+  const rows = parseRows(text).filter(([name]) => name);
+  const inList = new Set(rows.map((r) => (r[1] || '').trim().toLowerCase()).filter(Boolean));
+  res.inListCount = inList.size;
+  if (refresh) { const r = importProducts(text, { update: true }); res.updated = r.updated; res.added = r.added; }
+  getAll(STORAGE_KEYS.PRODUCTS).forEach((p) => {
+    if (!p.sku) { res.untouchedNoSku++; return; }
+    const listed = inList.has(p.sku.trim().toLowerCase());
+    if (listed && (p.discontinued || p.historicalImport)) { updateRecord(STORAGE_KEYS.PRODUCTS, p.id, { discontinued: false, historicalImport: false }); res.restored++; }
+    else if (!listed && !p.discontinued) { updateRecord(STORAGE_KEYS.PRODUCTS, p.id, { discontinued: true }); res.hidden++; }
+  });
+  return res;
+}
+
+function importProducts(text, { update = false, archivedOnly = false } = {}) {
   const map = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [(p.sku || p.name).trim().toLowerCase(), p]));
   const touched = new Set();
-  const res = { added: 0, skipped: [], updated: 0, priceChanges: [], withOffer: [], missing: [] };
+  const res = { added: 0, skipped: [], updated: 0, priceChanges: [], withOffer: [], missing: [], skippedCurrent: 0, notInSystem: 0, namedArchived: [] };
   parseRows(text).forEach(([name, sku, category, price, opening, reorder, unit, description]) => {
     if (!name) return;
     const k = (sku || name).trim().toLowerCase();
     const old = map.get(k);
+    if (archivedOnly) {
+      if (!old) { res.notInSystem++; return; }
+      if (!old.historicalImport) { res.skippedCurrent++; return; }
+      const priceGiven = String(price ?? '').trim() !== '';
+      updateRecord(STORAGE_KEYS.PRODUCTS, old.id, { name, category: category || old.category, basePrice: priceGiven ? toNum(price) : old.basePrice, description: description || old.description, historicalImport: false, discontinued: true });
+      touched.add(k); res.updated++; res.namedArchived.push(old.sku || name);
+      return;
+    }
     if (old) {
-      if (!update) { res.skipped.push(sku || name); return; }
+      const wasHidden = isProductHidden(old); // لو القايمة دي هي الحالية، المنتج المؤرشف بيرجع نشط بدل ما يتخطى
+      if (!update && !wasHidden) { res.skipped.push(sku || name); return; }
+      if (wasHidden) res.reactivated = (res.reactivated || 0) + 1;
       touched.add(k);
       // خانة السعر فاضية = سيب السعر القديم زي ما هو، متصفّرهوش
       const priceGiven = String(price ?? '').trim() !== '';
       const newPrice = priceGiven ? toNum(price) : old.basePrice;
       if (priceGiven && newPrice !== old.basePrice) res.priceChanges.push({ sku: old.sku || old.name, from: old.basePrice, to: newPrice });
-      updateRecord(STORAGE_KEYS.PRODUCTS, old.id, { name, category: category || old.category, basePrice: newPrice, description: description || old.description });
+      updateRecord(STORAGE_KEYS.PRODUCTS, old.id, { name, category: category || old.category, basePrice: newPrice, description: description || old.description, discontinued: false, historicalImport: false });
       if (old.offerPrice !== null && old.offerPrice !== undefined) res.withOffer.push(old.sku || old.name);
       res.updated++;
       return;
@@ -1094,7 +1267,7 @@ function importProducts(text, { update = false } = {}) {
     const p = addProduct({ name, sku: sku || '', category: category || '', basePrice: toNum(price), openingStock: toNum(opening), reorderLevel: toNum(reorder), unit: unit || 'قطعة', description: description || '' });
     map.set(k, p); touched.add(k); res.added++;
   });
-  if (update) res.missing = [...map.entries()].filter(([k]) => !touched.has(k)).map(([, p]) => p.sku || p.name);
+  if (update && !archivedOnly) res.missing = [...map.entries()].filter(([k]) => !touched.has(k)).map(([, p]) => p.sku || p.name);
   return res;
 }
 
@@ -1941,6 +2114,8 @@ export {
   // التارجت الشهري (KPIs)
   addKpi, getKpiProgress, getMonthlyScorecard, productFamily,
   getFamilies, getAnalytics, getSmartAlerts, getAvailablePeriods,
+  isProductHidden, getActiveProducts, syncCatalogToList,
+  DIVISIONS, productDivision, productPath, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog,
   getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
   // نسخ احتياطي
