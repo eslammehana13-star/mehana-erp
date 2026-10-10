@@ -205,7 +205,7 @@ import {
   updateOrderNumber, getRenewalDaysLeft, getOrdersNeedingRenewal,
   updateOrderItems, voidOrder, recordReturn, getOrderReturns, getOrderAuditLog,
   getActiveOrders, startNewMonth,
-  updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS,
+  updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS, setOrderItemDeliveredAt,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
 } from './erp-data-layer.js';
 
@@ -258,6 +258,7 @@ function buildItemsPanelHtml(order) {
         <td><input type="number" class="edit-item-qty" value="${it.qty}" min="1" style="width:60px;"></td>
         <td><input type="number" class="edit-item-price" value="${it.unitPrice}" min="0" style="width:80px;"></td>
         <td><select class="status-select ${it.status || 'unconfirmed'}" data-item-status="${order.id}" data-item-idx="${idx}">${statusOptionsHtml(it.status || 'unconfirmed')}</select></td>
+        <td>${it.status === 'delivered' ? `<input type="date" class="item-delivered-at" data-idx="${idx}" value="${String(it.deliveredAt || order.date || '').slice(0, 10)}" style="width:135px;" title="تاريخ التسليم الفعلي — التارجت بيتحسب بيه">` : '<span class="muted">—</span>'}</td>
         <td><input type="number" class="item-return-qty" value="0" min="0" max="${it.qty}" style="width:55px;" title="كمية مرتجعة"></td>
         <td><button class="danger" data-remove-item="${order.id}" data-remove-product="${it.productId}" style="padding:3px 8px; font-size:12px;">🗑</button></td>
       </tr>`;
@@ -279,7 +280,7 @@ function buildItemsPanelHtml(order) {
   return `
     <div class="items-panel">
       <table>
-        <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>حالة الصنف</th><th>مرتجع</th><th></th></tr></thead>
+        <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>حالة الصنف</th><th>تاريخ التسليم</th><th>مرتجع</th><th></th></tr></thead>
         <tbody id="itemsBody-${order.id}">${itemsRowsHtml}</tbody>
       </table>
       <div style="display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;">
@@ -355,6 +356,12 @@ function attachItemsPanelListeners(orderId) {
   const body = document.getElementById('itemsModalBody');
   body.querySelectorAll('[data-item-status]').forEach(sel => sel.addEventListener('change', (e) => {
     updateOrderItemStatus(sel.dataset.itemStatus, Number(sel.dataset.itemIdx), e.target.value);
+    refresh();
+    openItemsModal(orderId);
+  }));
+  body.querySelectorAll('.item-delivered-at').forEach(inp => inp.addEventListener('change', () => {
+    if (!inp.value) return;
+    setOrderItemDeliveredAt(orderId, Number(inp.dataset.idx), inp.value);
     refresh();
     openItemsModal(orderId);
   }));

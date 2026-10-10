@@ -37,6 +37,15 @@
   nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
   nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
   nav a.active { background: var(--primary); color: #fff; }
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .kpi { background: var(--card); border-radius: 12px; padding: 12px 16px; flex: 1; min-width: 120px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .kpi .label { font-size: 12px; color: var(--muted); }
+  .kpi .value { font-size: 20px; font-weight: 700; color: var(--primary-dark); }
+  .gauge-card { background: var(--card); border-radius: 18px; padding: 10px 12px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); width: 210px; text-align: center; }
+  .gauge-card h3 { margin: 0 0 4px; font-size: 14px; color: var(--primary-dark); }
+  .overall { background: var(--card); border-radius: 18px; padding: 16px 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; min-width: 220px; }
+  .overall .num { font-size: 40px; font-weight: 800; color: var(--primary-dark); }
+  .tgt-in { width: 110px; }
 </style>
 <link rel="stylesheet" href="theme.css">
 <script src="theme.js"></script>
@@ -56,6 +65,53 @@
 
 <h1>🎯 الأهداف والعمولات</h1>
 
+<div class="card" id="dashCard">
+  <div class="toolbar">
+    <h2>🎯 نسبة تحقيقي</h2>
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <input type="month" id="dash_period" style="max-width:160px;">
+      <label style="font-size:13px; display:flex; align-items:center; gap:6px;"><input type="checkbox" id="dash_cap" style="flex:none; width:auto;"> حد أقصى 100% لكل KPI في السكور</label>
+    </div>
+  </div>
+  <p class="muted">المحقق من المسلَّم فعلياً (Delivered) وبتاريخ التسليم، صافي بعد الضريبة للقيم. الأصناف بتبقى Delivered من نافذة تفاصيل الأصناف في الفواتير.</p>
+  <div id="dashEmpty" class="muted" style="display:none; padding:8px 0;">لسه ما حددتش تارجت الشهر ده — املا الأرقام في كارت "إعداد تارجت الشهر" تحت واضغط حفظ.</div>
+  <div id="dashBody">
+    <div class="kpis" id="dashStrip"></div>
+    <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
+      <div id="gauges" style="display:flex; gap:12px; flex-wrap:wrap; flex:1; min-width:300px;"></div>
+      <div class="overall"><div class="muted">Overall KPI Achievement</div><div class="num" id="overallNum">0%</div></div>
+    </div>
+    <div style="overflow-x:auto;"><table>
+      <thead><tr><th>KPI</th><th>الوزن</th><th>المحقق</th><th>الهدف</th><th>الإنجاز</th><th>السكور</th></tr></thead>
+      <tbody id="scoreBody"></tbody>
+    </table></div>
+    <div id="weightNote" class="muted" style="margin-top:6px;"></div>
+    <div id="dashDetails" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<div class="card" id="setupCard">
+  <h2>⚙ إعداد تارجت الشهر</h2>
+  <p class="muted">الأرقام بتتغير كل شهر: اكتب الهدف والوزن لكل KPI واضغط حفظ. لو الشهر ده لسه ما اتحفظش، الخانات بتتملي بأرقام الشهر اللي فات كنقطة بداية. الـ OverDue بتدخل إنجازه بنفسك (100% افتراضي).</p>
+  <div style="overflow-x:auto;"><table>
+    <thead><tr><th>KPI</th><th>الوحدة</th><th>الوزن %</th><th>الهدف</th><th></th></tr></thead>
+    <tbody id="setupBody"></tbody>
+  </table></div>
+  <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+    <label style="font-size:13px; display:flex; align-items:center; gap:6px;">ضريبة % (لقيمة MDA و SDA) <input type="number" id="setup_vat" value="14" min="0" max="100" step="0.5" style="width:70px;"></label>
+    <span class="muted" id="setupWeightSum"></span>
+    <button type="button" id="btnSaveSetup">💾 حفظ تارجت الشهر</button>
+  </div>
+  <h3 style="font-size:14px; margin:16px 0 6px;">فاميلي الـ White Space</h3>
+  <p class="muted">كل سطر: <b>اسم الفاميلي: وسم1، وسم2</b> (الوسوم من شجرة التصنيف). التاجر بيتحسب لو اشترى (مسلَّم) من 4 فاميلي أو أكتر منهم في الشهر.</p>
+  <textarea id="wsGroups" rows="6" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <div style="display:flex; gap:8px; margin-top:8px;">
+    <button type="button" id="btnSaveWs">💾 حفظ الفاميلي</button>
+    <button type="button" class="secondary" id="btnResetWs">استرجاع الافتراضي</button>
+  </div>
+</div>
+
+<details class="card"><summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🛠 متقدم: KPI مخصص وجدول الـ KPIs التفصيلي</summary>
 <div class="card">
   <h2>📊 تارجتك الشهري (KPIs)</h2>
   <p class="muted">كل شهر حدد KPIs مختلفة بأوزان مختلفة — بيتحسب المحقق تلقائياً من الفواتير الحقيقية.</p>
@@ -79,9 +135,6 @@
       <input type="number" id="kpi_vat" min="0" max="100" step="0.5" value="14" style="width:70px;">
     </label>
     <input type="number" id="kpi_deduction" placeholder="خصم إضافي %  (اختياري، بعد الضريبة)" min="0" max="100" step="0.5" value="0">
-    <label style="display:flex; align-items:center; gap:6px; font-size:14px;">
-      <input type="checkbox" id="kpi_onlyDelivered" style="flex:none; width:auto;"> Delivered بس
-    </label>
     <button type="submit">إضافة KPI</button>
   </form>
 </div>
@@ -98,6 +151,8 @@
   <p class="muted" id="kpiEmpty" style="display:none">لا توجد KPIs لهذا الشهر بعد.</p>
   <div id="overallScoreBox" style="margin-top:10px; font-weight:700;"></div>
 </div>
+
+</details>
 
 <div class="card">
   <h2>إضافة مندوب مبيعات</h2>
@@ -151,6 +206,8 @@ import {
   initStorage, addRep, getAll, STORAGE_KEYS,
   setTarget, getTargetProgress, deleteRecord,
   addKpi, getMonthlyScorecard,
+  getKpiDetails, getPeriodTotalValue, getMonthlyTargetsForm, saveMonthlyTargets, TARGET_TEMPLATE,
+  getWhiteSpaceGroups, setWhiteSpaceGroups, setSetting, getTargetCap, setTargetCap,
   downloadBackup, importBackup,
 } from './erp-data-layer.js';
 
@@ -159,6 +216,7 @@ const KPI_TYPE_LABELS = {
   category_value: 'قيمة تصنيف',
   category_count: 'عدد قطع تصنيف',
   active_dealers: 'عملاء نشطين',
+  manual_percent: 'نسبة يدوية',
   white_space_dealers: 'White Space',
 };
 
@@ -174,6 +232,9 @@ function refresh() {
   renderTargetsTable();
   renderCategoryList();
   renderScorecard();
+  renderDashboard();
+  renderSetup();
+  document.getElementById('wsGroups').value = wsToText(getWhiteSpaceGroups());
 }
 
 function renderCategoryList() {
@@ -251,7 +312,6 @@ document.getElementById('kpiForm').addEventListener('submit', (e) => {
     weight: Number(document.getElementById('kpi_weight').value),
     targetValue: Number(document.getElementById('kpi_target').value),
     deductionPercent: Number(document.getElementById('kpi_deduction').value) || 0,
-    onlyDelivered: document.getElementById('kpi_onlyDelivered').checked,
     minFamilies,
     vatRate: Number(document.getElementById('kpi_vat').value) || 0,
   });
@@ -355,6 +415,115 @@ document.getElementById('importFile').addEventListener('change', (e) => {
     }
   };
   reader.readAsText(file);
+});
+
+// ---------------- لوحة "نسبة تحقيقي" ----------------
+const fmtNum = (n) => { const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M'; if (a >= 1e3) return (n / 1e3).toFixed(2) + 'K'; return (Math.round(n * 100) / 100).toLocaleString(); };
+const isValueKpi = (k) => k.metricType === 'category_value' || k.metricType === 'total_value';
+const fmtKpi = (k, n) => k.metricType === 'manual_percent' ? `${Math.round(n)}%` : isValueKpi(k) ? fmtNum(n) : Math.round(n).toLocaleString();
+
+function gaugeSvg(pct, actualLabel, maxLabel) {
+  const p = Math.max(0, Math.min(pct, 100)), L = Math.PI * 80;
+  return `<svg viewBox="0 0 200 128" xmlns="http://www.w3.org/2000/svg" style="width:100%;">
+    <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#E7E1DA" stroke-width="22"/>
+    <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#7FBF9C" stroke-width="22" stroke-dasharray="${(p / 100) * L} ${L}"/>
+    <text x="100" y="58" text-anchor="middle" font-size="19" font-weight="700" fill="#16212B">${pct}%</text>
+    <text x="100" y="92" text-anchor="middle" font-size="24" fill="#6B7280">${esc(actualLabel)}</text>
+    <text x="20" y="120" text-anchor="middle" font-size="11" fill="#6B7280">0</text>
+    <text x="180" y="120" text-anchor="middle" font-size="11" fill="#6B7280">${esc(maxLabel)}</text></svg>`;
+}
+
+function dashPeriod() { return document.getElementById('dash_period').value || currentPeriod(); }
+
+function renderDashboard() {
+  const period = dashPeriod();
+  document.getElementById('dash_period').value = period;
+  document.getElementById('dash_cap').checked = getTargetCap();
+  const sc = getMonthlyScorecard(period);
+  const order = (k) => { const i = TARGET_TEMPLATE.findIndex(t => t.name === k.name); return i === -1 ? 99 : i; };
+  const kpis = sc.kpis.slice().sort((a, b) => order(a) - order(b));
+  document.getElementById('dashEmpty').style.display = kpis.length ? 'none' : 'block';
+  document.getElementById('dashBody').style.display = kpis.length ? '' : 'none';
+  if (!kpis.length) return;
+
+  document.getElementById('dashStrip').innerHTML = kpis.map(k => `<div class="kpi"><div class="label">${esc(k.name)} (الهدف)</div><div class="value">${k.metricType === 'manual_percent' ? '—' : fmtKpi(k, k.targetValue)}</div></div>`).join('')
+    + `<div class="kpi"><div class="label">Total Value (المحقق)</div><div class="value">${fmtNum(getPeriodTotalValue(period, Number(document.getElementById('setup_vat').value) || 0))}</div></div>`;
+
+  document.getElementById('gauges').innerHTML = kpis.filter(k => k.metricType !== 'manual_percent').map(k =>
+    `<div class="gauge-card"><h3>${esc(k.name)} Achievement</h3>${gaugeSvg(k.percentage, fmtKpi(k, k.achieved), fmtKpi(k, k.targetValue))}</div>`).join('');
+  document.getElementById('overallNum').textContent = `${sc.overallScore}%`;
+
+  document.getElementById('scoreBody').innerHTML = kpis.map(k => `<tr>
+    <td>${esc(k.name)}</td><td>${k.weight}%</td><td>${fmtKpi(k, k.achieved)}</td><td>${k.metricType === 'manual_percent' ? '—' : fmtKpi(k, k.targetValue)}</td>
+    <td>${k.percentage}%</td><td><b>${k.weightedScore}%</b></td></tr>`).join('')
+    + `<tr><td colspan="5"><b>الإجمالي</b></td><td><b>${sc.overallScore}%</b></td></tr>`;
+  document.getElementById('weightNote').textContent = sc.totalWeight !== 100 ? `⚠ مجموع الأوزان ${sc.totalWeight}% — المفروض يكون 100%.` : '';
+
+  document.getElementById('dashDetails').innerHTML = kpis.map(k => {
+    const d = getKpiDetails(k.id);
+    if (!d) return '';
+    if (d.kind === 'whitespace') {
+      return `<details style="margin-bottom:6px;"><summary style="cursor:pointer;">تفاصيل ${esc(k.name)} (${d.rows.length} تاجر)</summary>
+        <ul style="font-size:13px;">${d.rows.map(r => `<li>${esc(r.name)} — ${r.familyCount} فاميلي: ${r.families.map(esc).join('، ')}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></details>`;
+    }
+    const unit = (x) => k.metricType === 'category_count' ? `${x.qty.toLocaleString()} قطعة` : `${x.value.toLocaleString()} (${x.qty.toLocaleString()} قطعة)`;
+    return `<details style="margin-bottom:6px;"><summary style="cursor:pointer;">تفاصيل ${esc(k.name)}</summary>
+      <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:13px;">
+        <div><b>العملاء (${d.byCustomer.length})</b><ul>${d.byCustomer.slice(0, 15).map(x => `<li>${esc(x.name)} — ${unit(x)}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div>
+        <div><b>أعلى منتجات</b><ul>${d.byProduct.slice(0, 10).map(x => `<li>${esc(x.name)} — ${unit(x)}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div>
+      </div></details>`;
+  }).join('');
+}
+
+function renderSetup() {
+  const rows = getMonthlyTargetsForm(dashPeriod());
+  document.getElementById('setupBody').innerHTML = rows.map(r => `<tr data-key="${r.key}">
+    <td>${esc(r.name)}${r.fromPrev ? ' <span class="muted">(من الشهر اللي فات)</span>' : r.saved ? '' : ''}</td><td class="muted">${esc(r.unit)}</td>
+    <td><input type="number" class="tgt-in s-weight" min="0" max="100" step="0.5" value="${r.weight}"></td>
+    <td>${r.metricType === 'manual_percent'
+      ? `<input type="number" class="tgt-in s-manual" min="0" max="100" step="0.5" value="${r.manualPercent}"> <span class="muted">إنجاز %</span>`
+      : `<input type="number" class="tgt-in s-target" min="0" step="1" value="${r.targetValue}" placeholder="الهدف">`}</td>
+    <td class="muted">${r.saved ? '✔ محفوظ' : ''}</td></tr>`).join('');
+  updateWeightSum();
+}
+function updateWeightSum() {
+  const sum = [...document.querySelectorAll('#setupBody .s-weight')].reduce((s, i) => s + (Number(i.value) || 0), 0);
+  document.getElementById('setupWeightSum').textContent = `مجموع الأوزان: ${sum}%${sum !== 100 ? ' ⚠ المفروض 100%' : ' ✔'}`;
+}
+
+function wsToText(groups) { return groups.map(g => `${g.name}: ${g.tags.join('، ')}`).join('\n'); }
+function textToWs(text) {
+  return text.split('\n').map(l => l.trim()).filter(Boolean).map(l => {
+    const [name, rest] = l.split(':');
+    return { name: (name || '').trim(), tags: (rest || name || '').split(/[،,]/).map(x => x.trim()).filter(Boolean) };
+  }).filter(g => g.name && g.tags.length);
+}
+
+document.getElementById('dash_period').addEventListener('change', () => { renderDashboard(); renderSetup(); });
+document.getElementById('dash_cap').addEventListener('change', (e) => { setTargetCap(e.target.checked); renderDashboard(); });
+document.getElementById('setupBody').addEventListener('input', updateWeightSum);
+document.getElementById('setup_vat').addEventListener('change', renderDashboard);
+document.getElementById('btnSaveSetup').addEventListener('click', () => {
+  const rows = [...document.querySelectorAll('#setupBody tr')].map(tr => ({
+    key: tr.dataset.key, weight: tr.querySelector('.s-weight').value,
+    targetValue: tr.querySelector('.s-target') ? tr.querySelector('.s-target').value : '',
+    manualPercent: tr.querySelector('.s-manual') ? tr.querySelector('.s-manual').value : '',
+  }));
+  saveMonthlyTargets(dashPeriod(), rows, { vatRate: Number(document.getElementById('setup_vat').value) || 0 });
+  refresh();
+  alert('تم حفظ تارجت الشهر ✅');
+});
+document.getElementById('btnSaveWs').addEventListener('click', () => {
+  const groups = textToWs(document.getElementById('wsGroups').value);
+  if (groups.length < 4) { alert('لازم يكون فيه 4 فاميلي على الأقل'); return; }
+  setWhiteSpaceGroups(groups);
+  refresh();
+  alert('تم حفظ فاميلي الـ White Space ✅');
+});
+document.getElementById('btnResetWs').addEventListener('click', () => {
+  if (!confirm('استرجاع فاميلي الـ White Space الافتراضية؟')) return;
+  setSetting('whiteSpaceGroups', undefined);
+  refresh();
 });
 
 document.getElementById('kpi_period').value = currentPeriod();
