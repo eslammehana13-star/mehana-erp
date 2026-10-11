@@ -116,6 +116,26 @@ function initStorage() {
       saveAll(key, key === STORAGE_KEYS.SETTINGS || key === STORAGE_KEYS.META ? {} : []);
     }
   });
+  migrateDeliveredOrders();
+}
+
+/**
+ * ترحيل لمرة واحدة: الطلبية القديمة اللي حالتها Delivered على مستوى الطلبية بس (وأصنافها لسه مش Delivered
+ * لأنها اتسجلت قبل ما التارجت يعتمد على حالة كل صنف) أصنافها بتتحوّل Delivered بتاريخ الطلبية،
+ * عشان تتحسب في التارجت. بتتعلّم بـ deliveryMigrated فمبتتكررش.
+ */
+function migrateDeliveredOrders() {
+  const orders = JSON.parse(localStorage.getItem(STORAGE_KEYS.SALES_ORDERS) || '[]');
+  let changed = false;
+  orders.forEach((o) => {
+    if (o.deliveryMigrated) return;
+    if (o.status === 'delivered' && o.items.some((it) => it.status !== 'delivered')) {
+      o.items = o.items.map((it) => (it.status === 'delivered' ? it : { ...it, status: 'delivered', deliveredAt: it.deliveredAt || o.deliveredAt || o.date }));
+    }
+    o.deliveryMigrated = true;
+    changed = true;
+  });
+  if (changed) localStorage.setItem(STORAGE_KEYS.SALES_ORDERS, JSON.stringify(orders));
 }
 
 // ------------------------------------------------------------
@@ -803,8 +823,11 @@ function applyDeliveryStamp(it, status, deliveredAt) {
 function updateOrderStatus(orderId, status) {
   const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
   if (!order) return null;
-  // لما الطلبية كلها تبقى Delivered، كل أصنافها بتبقى Delivered بتاريخ النهارده (ممكن تعدّل التاريخ من تفاصيل الأصناف)
-  const items = status === 'delivered' ? order.items.map((it) => (it.status === 'delivered' ? it : applyDeliveryStamp(it, 'delivered', null))) : order.items;
+  // Delivered: كل الأصناف تبقى Delivered بتاريخ النهارده (ممكن تعدّل التاريخ من تفاصيل الأصناف).
+  // أي حالة تانية: الأصناف اللي كانت Delivered بترجع لنفس الحالة الجديدة وبيتشال تاريخ تسليمها، فتتشال من التارجت.
+  const items = status === 'delivered'
+    ? order.items.map((it) => (it.status === 'delivered' ? it : applyDeliveryStamp(it, 'delivered', null)))
+    : order.items.map((it) => (it.status === 'delivered' ? applyDeliveryStamp(it, status, null) : it));
   return updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { status, items });
 }
 
@@ -821,7 +844,11 @@ function updateOrderItemStatus(orderId, itemIndex, status, deliveredAt = null) {
   const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
   if (!order) return null;
   const items = order.items.map((it, idx) => (idx === itemIndex ? applyDeliveryStamp(it, status, deliveredAt) : it));
-  return updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { items });
+  // حالة الطلبية بتتبع أصنافها: كلها Delivered ← Delivered، وغير كده بعد ما كانت Delivered ← Confirmed
+  let orderStatus = order.status;
+  if (items.every((it) => it.status === 'delivered')) orderStatus = 'delivered';
+  else if (order.status === 'delivered') orderStatus = 'confirmed';
+  return updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { items, status: orderStatus });
 }
 
 // ------------------------------------------------------------
@@ -2180,6 +2207,7 @@ function importBackup(jsonData) {
       saveAll(key, value);
     }
   });
+  migrateDeliveredOrders();
   return true;
 }
 
