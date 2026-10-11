@@ -824,12 +824,37 @@ function applyDeliveryStamp(it, status, deliveredAt) {
 function updateOrderStatus(orderId, status) {
   const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
   if (!order) return null;
-  // Delivered: كل الأصناف تبقى Delivered بتاريخ النهارده (ممكن تعدّل التاريخ من تفاصيل الأصناف).
-  // أي حالة تانية: الأصناف اللي كانت Delivered بترجع لنفس الحالة الجديدة وبيتشال تاريخ تسليمها، فتتشال من التارجت.
-  const items = status === 'delivered'
-    ? order.items.map((it) => (it.status === 'delivered' ? it : applyDeliveryStamp(it, 'delivered', null)))
-    : order.items.map((it) => (it.status === 'delivered' ? applyDeliveryStamp(it, status, null) : it));
+  // أي حالة جديدة للطلبية = كل أصنافها تاخد نفس الحالة تلقائياً.
+  // Delivered: الأصناف اللي لسه مش مسلَّمة بتتختم بتاريخ النهارده (والمسلَّمة قبل كده بتحتفظ بتاريخها).
+  // أي حالة تانية: بيتشال تاريخ التسليم من كل الأصناف، فبتتشال من التارجت والمحقق.
+  const items = order.items.map((it) => (status === 'delivered' && it.status === 'delivered' ? it : applyDeliveryStamp(it, status, null)));
   return updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { status, items });
+}
+
+/** طلبيات حالتها مش مطابقة لحالة أصنافها (للمراجعة): مثلاً الطلبية مش Delivered وفيها أصناف Delivered محسوبة في المحقق */
+function getStatusMismatchOrders(customerId = null) {
+  return getReportOrders()
+    .filter((o) => (!customerId || o.customerId === customerId) && o.items.length)
+    .filter((o) => {
+      const del = o.items.filter((it) => it.status === 'delivered').length;
+      return o.status === 'delivered' ? del < o.items.length : del > 0;
+    })
+    .map((o) => ({ id: o.id, invoiceNo: o.invoiceNo, orderNumber: o.orderNumber, status: o.status, date: o.date, deliveredItems: o.items.filter((it) => it.status === 'delivered').length, totalItems: o.items.length }));
+}
+
+/** قيمة الأصناف غير المسلَّمة للتاجر (مش داخلة في المحقق) مجمّعة بالحالة: unconfirmed / confirmed / release */
+function getDealerNotCounted(customerId) {
+  const out = { unconfirmed: 0, confirmed: 0, release: 0 };
+  getReportOrders().filter((o) => o.customerId === customerId).forEach((o) => {
+    const factor = 1 - (o.discountRate || 0) / 100;
+    o.items.forEach((it) => {
+      if (it.status === 'delivered') return;
+      const k = it.status && it.status in out ? it.status : 'unconfirmed';
+      out[k] += it.qty * it.unitPrice * factor;
+    });
+  });
+  Object.keys(out).forEach((k) => { out[k] = Math.round(out[k] * 100) / 100; });
+  return out;
 }
 
 /** تعديل تاريخ تسليم صنف مسلَّم فعلاً (YYYY-MM-DD) — لو سجّلت التسليم متأخر عن تاريخه الحقيقي */
@@ -2374,6 +2399,7 @@ export {
   getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
   // تارجت التجار + أساس تاريخ التحليل
+  getStatusMismatchOrders, getDealerNotCounted,
   DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, deleteDealerTarget, getDealerAchieved, getDealerTargetProgress, getDealerTargetsOverview,
   getAnalyticsDateBasis, setAnalyticsDateBasis,
   // نسخ احتياطي

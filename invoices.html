@@ -682,7 +682,15 @@ function renderOrdersTable() {
   }).join('');
   tbody.querySelectorAll('[data-toggle]').forEach(btn => btn.addEventListener('click', () => openItemsModal(btn.dataset.toggle)));
   tbody.querySelectorAll('[data-order-status]').forEach(sel => sel.addEventListener('change', (e) => {
-    updateOrderStatus(sel.dataset.orderStatus, e.target.value);
+    const ord = getAll(STORAGE_KEYS.SALES_ORDERS).find(x => x.id === sel.dataset.orderStatus);
+    const newStatus = e.target.value;
+    const deliveredCount = ord ? ord.items.filter(it => it.status === 'delivered').length : 0;
+    if (newStatus !== 'delivered' && deliveredCount > 0 &&
+        !confirm(`كل أصناف الطلبية هتتحول لـ "${STATUS_META[newStatus]}" وهيتشال تاريخ التسليم من ${deliveredCount} صنف مسلَّم (هيتشالوا من التارجت والمحقق). متأكد؟`)) {
+      refresh();
+      return;
+    }
+    updateOrderStatus(sel.dataset.orderStatus, newStatus);
     refresh();
   }));
   tbody.querySelectorAll('[data-email-sent]').forEach(chk => chk.addEventListener('change', (e) => {

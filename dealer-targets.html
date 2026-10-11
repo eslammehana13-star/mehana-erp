@@ -152,7 +152,7 @@
 import {
   esc, initStorage, getAll, STORAGE_KEYS,
   DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, deleteDealerTarget,
-  getDealerTargetProgress, getDealerTargetsOverview,
+  getDealerTargetProgress, getDealerTargetsOverview, getDealerNotCounted, getStatusMismatchOrders,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -208,6 +208,19 @@ function renderOverview() {
   }));
 }
 
+// ---------- اللي بيتحسب واللي لأ ----------
+function statusInfoHtml(customerId) {
+  const nc = getDealerNotCounted(customerId);
+  const mm = getStatusMismatchOrders(customerId);
+  const ncTotal = nc.unconfirmed + nc.confirmed + nc.release;
+  let html = `<p class="muted">المحقق بيحسب أصناف <b>Delivered</b> بس. أصناف لسه مش مسلَّمة (غير محسوبة): ${fmt(ncTotal)}
+    <span class="muted">(Unconfirmed ${fmt(nc.unconfirmed)} · Confirmed ${fmt(nc.confirmed)} · Release ${fmt(nc.release)})</span></p>`;
+  if (mm.length) {
+    html += `<div class="note">⚠ ${mm.length} طلبية حالتها مش مطابقة لحالة أصنافها، راجعها من صفحة الفواتير (غيّر حالة الطلبية وكل أصنافها هتتبعها):<br>${mm.slice(0, 8).map((o) => `فاتورة #${esc(o.invoiceNo || '-')} (${esc(o.status)}): ${o.deliveredItems}/${o.totalItems} صنف Delivered`).join('<br>')}${mm.length > 8 ? '<br>…' : ''}</div>`;
+  }
+  return html;
+}
+
 // ---------- تقدم تاجر ----------
 function slabCard(s, p) {
   if (!(s.annual > 0)) return `<div class="slab"><div class="title">${s.name}</div><p class="muted">مفيش رقم متسجل.</p></div>`;
@@ -231,7 +244,7 @@ function renderProgress() {
   if (!p.hasTargets) {
     box.innerHTML = `<p class="muted">لسه مفيش تارجت للتاجر ده في ${state.year}. سجّله من الجزء اللي تحت.</p>
       <div class="kpis"><div class="kpi"><div class="label">المحقق فعلياً في ${state.year}</div><div class="value">${fmt(p.achieved.total)}</div></div>
-      <div class="kpi"><div class="label">بوتاجاز مسلَّم</div><div class="value">${fmt(p.achieved.cookersTotal)}</div></div></div>`;
+      <div class="kpi"><div class="label">بوتاجاز مسلَّم</div><div class="value">${fmt(p.achieved.cookersTotal)}</div></div></div>${statusInfoHtml(state.customerId)}`;
     return;
   }
   const t = p.target;
@@ -259,6 +272,7 @@ function renderProgress() {
       <div class="kpi"><div class="label">وصل لـ</div><div class="value">${p.reachedCount ? DEALER_SLAB_NAMES[p.reachedCount - 1] : 'لسه تحت Slab 1'}</div></div>
       <div class="kpi"><div class="label">متوسط شهري فعلي</div><div class="value">${fmt(p.runRate)}</div></div>
     </div>
+    ${statusInfoHtml(state.customerId)}
     <div class="note">${nextTxt}</div>
     <div class="grid3">${p.slabs.map((s) => slabCard(s, p)).join('')}</div>
 
