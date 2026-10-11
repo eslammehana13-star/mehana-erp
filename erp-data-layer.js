@@ -31,6 +31,7 @@ const STORAGE_KEYS = {
   STOCK_STATUS: 'erp_stock_status_log',
   DEALER_STOCK: 'erp_dealer_stock',
   LEDGER_ADJUSTMENTS: 'erp_ledger_adjustments',
+  DEALER_TARGETS: 'erp_dealer_targets', // تارجت التجار (Slabs + بوتاجاز)
   SETTINGS: 'erp_settings',
   META: 'erp_meta', // آخر تحديث، رقم النسخة، إلخ
 };
@@ -1462,13 +1463,17 @@ function getAnalyticsLines(vatRate = 14) {
   });
   const vatDivisor = 1 + (vatRate || 0) / 100;
 
+  const byDelivery = getAnalyticsDateBasis() === 'delivery';
   const lines = [];
   getReportOrders().forEach((o) => {
     const customer = cMap.get(o.customerId);
+    const deliveredKeys = new Set();
     o.items.forEach((it) => {
+      // بتاريخ التسليم: الأصناف المسلَّمة بس، بتاريخ تسليم الصنف (زي لوحة التارجت)
+      if (byDelivery) { if (it.status !== 'delivered') return; deliveredKeys.add(it.productId); }
       const p = pMap.get(it.productId);
       lines.push({
-        date: o.date,
+        date: byDelivery ? (it.deliveredAt || o.deliveredAt || o.date) : o.date,
         customerId: o.customerId,
         customerName: customer ? customer.name : '(محذوف)',
         productId: it.productId,
@@ -1481,6 +1486,7 @@ function getAnalyticsLines(vatRate = 14) {
     // المرتجعات بتتخصم كسطر سالب بنفس الصنف والفاميلي، بنفس تاريخ المرتجع
     (returnsByOrder.get(o.id) || []).forEach((r) => {
       r.items.forEach((ri) => {
+        if (byDelivery && !deliveredKeys.has(ri.productId)) return; // المرتجع بيتحسب للأصناف المسلَّمة بس
         const p = pMap.get(ri.productId);
         lines.push({
           date: r.date,
@@ -1543,6 +1549,10 @@ function setSetting(name, value) {
   saveAll(STORAGE_KEYS.SETTINGS, obj);
 }
 
+/** أساس تاريخ تحليل المبيعات: 'delivery' (تاريخ التسليم، الافتراضي) أو 'order' (تاريخ الطلب) */
+function getAnalyticsDateBasis() { return getSetting('analyticsDateBasis', 'delivery') === 'order' ? 'order' : 'delivery'; }
+function setAnalyticsDateBasis(v) { setSetting('analyticsDateBasis', v === 'order' ? 'order' : 'delivery'); }
+
 /** فاميلي الـ White Space: كل فاميلي ليها اسم وقايمة وسوم (من شجرة التصنيف) بتتحسب عليها. تتعدّل من صفحة الأهداف */
 const DEFAULT_WHITESPACE_GROUPS = [
   { name: 'بوتاجازات', tags: ['بوتاجازات'] },
@@ -1554,8 +1564,8 @@ const DEFAULT_WHITESPACE_GROUPS = [
 ];
 function getWhiteSpaceGroups() { return getSetting('whiteSpaceGroups', DEFAULT_WHITESPACE_GROUPS); }
 function setWhiteSpaceGroups(groups) { setSetting('whiteSpaceGroups', groups); }
-/** حد أقصى 100% للإنجاز في حساب السكور (افتراضي مفعّل) */
-function getTargetCap() { return getSetting('targetCap100', true); }
+/** حد أقصى 100% للإنجاز في حساب السكور (افتراضي مُلغى: الإنجاز بيعدّي 100% عادي) */
+function getTargetCap() { return getSetting('targetCap100', false); }
 function setTargetCap(v) { setSetting('targetCap100', !!v); }
 
 /** كل أسطر المبيعات المسلَّمة فعلياً (الصنف حالته Delivered) بتاريخ تسليمها، وقيمتها بعد خصم الطلبية (شاملة الضريبة) */
@@ -2166,6 +2176,115 @@ function getMonthlyScorecard(period) {
 }
 
 // ------------------------------------------------------------
+// تارجت التجار: (1) قيمة إجمالية على 3 Slabs موزعة على 12 شهر — بدون ÷1.14
+// (القيمة زي ما هي في الفاتورة بعد خصم التاجر)، (2) البوتاجاز بالعدد: سنوي + 4 أرباع (من غير Slabs).
+// المحقق من المسلَّم فعلياً (Delivered) بتاريخ التسليم، ناقص المرتجعات.
+// ------------------------------------------------------------
+const DEALER_SLAB_NAMES = ['Slab 1', 'Slab 2', 'Slab 3'];
+const COOKER_TAG = 'بوتاجازات';
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** توزيع رقم على n خانة بالتساوي، ومجموعهم يطلع مطابق للإجمالي بالظبط (الباقي في آخر خانة) */
+function distributeEvenly(total, n = 12, decimals = 2) {
+  const t = Number(total) || 0, f = 10 ** decimals;
+  const base = Math.floor((t * f) / n) / f;
+  const out = Array(n).fill(base);
+  out[n - 1] = Math.round((t - base * (n - 1)) * f) / f;
+  return out;
+}
+/** توزيع عدد صحيح (قطع) على أرباع: الباقي بيتوزع على أول الأرباع */
+function distributeCount(total, n = 4) {
+  const t = Math.max(Math.round(Number(total) || 0), 0), base = Math.floor(t / n), rem = t - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));
+}
+
+function emptyDealerTarget(customerId, year) {
+  return { customerId, year: Number(year), slabs: [0, 0, 0], monthly: [Array(12).fill(0), Array(12).fill(0), Array(12).fill(0)], cookersAnnual: 0, cookersQuarters: [0, 0, 0, 0], saved: false };
+}
+function getDealerTarget(customerId, year) {
+  const rec = getAll(STORAGE_KEYS.DEALER_TARGETS).find((r) => r.customerId === customerId && Number(r.year) === Number(year));
+  return rec ? { ...emptyDealerTarget(customerId, year), ...rec, saved: true } : emptyDealerTarget(customerId, year);
+}
+function saveDealerTarget(customerId, year, data) {
+  const num = (v) => Math.max(Number(v) || 0, 0);
+  const rec = {
+    customerId, year: Number(year),
+    slabs: [0, 1, 2].map((i) => r2(num((data.slabs || [])[i]))),
+    monthly: [0, 1, 2].map((i) => Array.from({ length: 12 }, (_, m) => r2(num(((data.monthly || [])[i] || [])[m])))),
+    cookersAnnual: Math.round(num(data.cookersAnnual)),
+    cookersQuarters: Array.from({ length: 4 }, (_, q) => Math.round(num((data.cookersQuarters || [])[q]))),
+  };
+  const existing = getAll(STORAGE_KEYS.DEALER_TARGETS).find((r) => r.customerId === customerId && Number(r.year) === Number(year));
+  return existing ? updateRecord(STORAGE_KEYS.DEALER_TARGETS, existing.id, rec) : addRecord(STORAGE_KEYS.DEALER_TARGETS, rec);
+}
+function deleteDealerTarget(customerId, year) {
+  const existing = getAll(STORAGE_KEYS.DEALER_TARGETS).find((r) => r.customerId === customerId && Number(r.year) === Number(year));
+  if (!existing) return false;
+  saveAll(STORAGE_KEYS.DEALER_TARGETS, getAll(STORAGE_KEYS.DEALER_TARGETS).filter((r) => r.id !== existing.id));
+  return true;
+}
+
+/** المحقق الفعلي للتاجر في سنة: قيمة شهرية (12) + بوتاجاز بالعدد على الأرباع (4) */
+function getDealerAchieved(customerId, year) {
+  const monthly = Array(12).fill(0), cookerQ = Array(4).fill(0);
+  const add = (l, sign) => {
+    const d = new Date(l.date);
+    if (isNaN(d) || d.getFullYear() !== Number(year)) return;
+    const m = d.getMonth();
+    monthly[m] += sign * l.value;
+    if (hasCat(l.category, COOKER_TAG)) cookerQ[Math.floor(m / 3)] += sign * l.qty;
+  };
+  getDeliveredLines().filter((l) => l.customerId === customerId).forEach((l) => add(l, 1));
+  getDeliveredReturns().filter((l) => l.customerId === customerId).forEach((l) => add(l, -1));
+  return { monthly: monthly.map(r2), cookerQ, cookersTotal: cookerQ.reduce((a, b) => a + b, 0), total: r2(monthly.reduce((a, b) => a + b, 0)) };
+}
+
+/** تقدّم التاجر: وصل لحد فين، الباقي لكل Slab، المطلوب شهرياً، والبوتاجاز (سنوي/ربع) */
+function getDealerTargetProgress(customerId, year, now = new Date()) {
+  const t = getDealerTarget(customerId, year), a = getDealerAchieved(customerId, year);
+  const y = Number(year), ny = now.getFullYear();
+  const curMonth = y < ny ? 12 : y > ny ? 0 : now.getMonth() + 1;
+  const monthsLeft = y < ny ? 0 : y > ny ? 12 : 12 - curMonth + 1; // الشهر الحالي محسوب
+  const cumAchieved = a.monthly.map((_, i) => r2(a.monthly.slice(0, i + 1).reduce((s, v) => s + v, 0)));
+  const slabs = [0, 1, 2].map((i) => {
+    const annual = t.slabs[i], ytdTarget = r2(t.monthly[i].slice(0, curMonth).reduce((s, v) => s + v, 0));
+    const remaining = r2(Math.max(annual - a.total, 0));
+    return {
+      name: DEALER_SLAB_NAMES[i], annual, ytdTarget, remaining,
+      reached: annual > 0 && a.total >= annual,
+      pctAnnual: annual > 0 ? r2((a.total / annual) * 100) : null,
+      pctYtd: ytdTarget > 0 ? r2((a.total / ytdTarget) * 100) : null,
+      requiredPerMonth: annual > 0 && monthsLeft > 0 ? r2(remaining / monthsLeft) : null,
+    };
+  });
+  const reachedCount = slabs.filter((s) => s.reached).length;
+  const next = slabs.find((s) => s.annual > 0 && !s.reached) || null;
+  const q = curMonth === 0 ? 0 : Math.ceil(curMonth / 3), quartersLeft = y < ny ? 0 : y > ny ? 4 : 4 - q + 1;
+  const cRemaining = Math.max(t.cookersAnnual - a.cookersTotal, 0);
+  return {
+    target: t, achieved: a, curMonth, monthsLeft, cumAchieved,
+    runRate: curMonth > 0 ? r2(a.total / curMonth) : 0,
+    slabs, reachedCount, next, hasTargets: t.saved && (t.slabs.some((v) => v > 0) || t.cookersAnnual > 0),
+    behindSlab1: slabs[0].ytdTarget > 0 && a.total < slabs[0].ytdTarget,
+    cookers: {
+      annual: t.cookersAnnual, achieved: a.cookersTotal, remaining: cRemaining,
+      pct: t.cookersAnnual > 0 ? r2((a.cookersTotal / t.cookersAnnual) * 100) : null,
+      quarters: t.cookersQuarters.map((target, i) => ({ q: i + 1, target, achieved: a.cookerQ[i], remaining: Math.max(target - a.cookerQ[i], 0) })),
+      currentQuarter: q, quartersLeft,
+      requiredPerQuarter: t.cookersAnnual > 0 && quartersLeft > 0 ? Math.ceil(cRemaining / quartersLeft) : null,
+    },
+  };
+}
+
+/** كل التجار اللي ليهم تارجت في السنة دي، ومعاهم تقدّمهم */
+function getDealerTargetsOverview(year, now = new Date()) {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  return getAll(STORAGE_KEYS.DEALER_TARGETS).filter((r) => Number(r.year) === Number(year))
+    .map((r) => ({ customer: customers.find((c) => c.id === r.customerId), progress: getDealerTargetProgress(r.customerId, year, now) }))
+    .filter((x) => x.customer);
+}
+
+// ------------------------------------------------------------
 // النسخ الاحتياطي والاستيراد (Backup / Restore) - إجباري
 // ------------------------------------------------------------
 
@@ -2254,6 +2373,9 @@ export {
   DIVISIONS, productDivision, productPath, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog,
   getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
+  // تارجت التجار + أساس تاريخ التحليل
+  DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, deleteDealerTarget, getDealerAchieved, getDealerTargetProgress, getDealerTargetsOverview,
+  getAnalyticsDateBasis, setAnalyticsDateBasis,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
 };

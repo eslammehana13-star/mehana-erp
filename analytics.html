@@ -76,11 +76,12 @@
   <a href="invoices.html">📄 الفواتير</a>
   <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
+  <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html" class="active">📊 تحليل المبيعات</a>
 </nav>
 
 <h1>📊 تحليل المبيعات</h1>
-<p class="muted">مقارنة 2026 مقابل 2025، صافية بعد استخراج الضريبة. مرحلة 1 من الوحدة — KPIs والنمو والتحليل الزمني والفلاتر الحقيقية.</p>
+<p class="muted">مقارنة 2026 مقابل 2025، صافية بعد استخراج الضريبة. بتاريخ التسليم أو الطلب حسب الفلتر.</p>
 
 <div class="filter-bar">
   <div class="filter-row">
@@ -96,7 +97,13 @@
     </select>
     <div id="periodSub"></div>
     <label class="toggle-wrap"><input type="checkbox" id="f_compare" checked> وضع المقارنة (2025)</label>
+    <span class="filter-label">حسب</span>
+    <select id="f_basis">
+      <option value="delivery">تاريخ التسليم</option>
+      <option value="order">تاريخ الطلب</option>
+    </select>
   </div>
+  <div id="basisNote" class="muted" style="margin-top:6px;"></div>
   <div class="filter-row">
     <span class="filter-label">عميل</span>
     <div class="ms" id="ms_customer"></div>
@@ -296,6 +303,7 @@ import {
   esc, initStorage, getAll, STORAGE_KEYS,
   getFamilies, getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
+  getAnalyticsDateBasis, setAnalyticsDateBasis,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -692,6 +700,17 @@ document.getElementById('f_year').addEventListener('change', (e) => { state.year
 document.getElementById('f_periodType').addEventListener('change', (e) => { state.periodType = e.target.value; state.months = []; state.quarters = []; state.halves = []; renderPeriodSub(); refresh(); });
 document.getElementById('f_compare').addEventListener('change', (e) => { state.compare = e.target.checked; refresh(); });
 document.getElementById('f_granularity').addEventListener('change', (e) => { state.granularity = e.target.value; renderTimeAnalysis(); });
+function renderBasisNote() {
+  const b = getAnalyticsDateBasis();
+  document.getElementById('f_basis').value = b;
+  document.getElementById('basisNote').textContent = b === 'delivery'
+    ? 'بتاريخ التسليم: الأصناف المسلَّمة (Delivered) بس بتاريخ تسليم كل صنف، والمرتجعات للأصناف المسلَّمة. الأوردرات التاريخية (قبل 1 أكتوبر 2026) مفيهاش تاريخ تسليم فعلي، فبتتحسب بتاريخ الطلب، يعني أرقام 2025 تقريبية.'
+    : 'بتاريخ الطلب: كل الأصناف بتاريخ الطلبية بغض النظر عن حالتها.';
+}
+document.getElementById('f_basis').addEventListener('change', (e) => {
+  setAnalyticsDateBasis(e.target.value);
+  initFilters(); renderPeriodSub(); renderBasisNote(); refresh();
+});
 document.getElementById('btnRefresh').addEventListener('click', refresh);
 document.getElementById('btnResetFilters').addEventListener('click', () => {
   state.customerIds = []; state.familyNames = []; state.productIds = [];
@@ -712,6 +731,7 @@ document.getElementById('btnClearHistorical').addEventListener('click', () => {
 initFilters();
 populateDrillCustomer();
 renderPeriodSub();
+renderBasisNote();
 refresh();
 </script>
 </body>

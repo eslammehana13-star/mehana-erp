@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تارجت التجار</title>
+<style>
+  :root {
+    --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
+    --primary: #1F5065; --primary-dark: #123244; --danger: #A6402F; --ok: #1F7A4D;
+    --warn-bg: #F5EBD6; --warn-border: #B8862E; --border: #DCE1DF;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Dubai', 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; }
+  h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  h3 { font-size: 14px; margin: 14px 0 6px; color: var(--primary-dark); }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; color: var(--text); font-family: inherit; }
+  input[type=number] { width: 120px; }
+  input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,80,101,0.12); }
+  button { padding: 9px 16px; border: none; border-radius: 8px; background: var(--primary); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  button:hover { background: var(--primary-dark); }
+  button.secondary { background: var(--surface-alt, #E7EAE7); color: var(--text); border: 1px solid var(--border); }
+  button.danger { background: var(--danger); }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  th, td { padding: 7px 8px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: #F3F6F5; }
+  tr.sel { background: #E8F0F2; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .good { color: var(--ok); font-weight: 700; }
+  .bad { color: var(--danger); font-weight: 700; }
+  .warn { color: #7A5A19; font-weight: 700; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 8px 0; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 8px; }
+  .slab { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #FAFBFA; }
+  .slab.reached { border-color: var(--ok); background: #EEF8F1; }
+  .slab .title { font-weight: 700; display: flex; justify-content: space-between; gap: 6px; }
+  .slab .big { font-size: 20px; font-weight: 700; color: var(--primary-dark); margin: 4px 0; }
+  .slab .line { font-size: 13px; margin: 3px 0; display: flex; justify-content: space-between; gap: 8px; }
+  .bar { height: 12px; background: #E3E8E6; border-radius: 8px; overflow: hidden; margin: 6px 0; }
+  .bar > span { display: block; height: 100%; background: var(--primary); border-radius: 8px; }
+  .bar.full > span { background: var(--ok); }
+  .bar.under > span { background: var(--warn-border); }
+  .kpis { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .kpi { background: #F3F6F5; border-radius: 10px; padding: 10px 14px; flex: 1; min-width: 140px; }
+  .kpi .label { font-size: 12px; color: var(--muted); }
+  .kpi .value { font-size: 18px; font-weight: 700; color: var(--primary-dark); }
+  .sumrow td { font-weight: 700; background: #F3F6F5; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
+  nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); }
+  nav a.active { background: var(--primary); color: #fff; }
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<nav>
+  <a href="index.html">🏠 الرئيسية</a>
+  <a href="inventory.html">📦 المخزون</a>
+  <a href="customers.html">💰 العملاء</a>
+  <a href="dealer-stock.html">🏬 مخزون التجار</a>
+  <a href="invoices.html">📄 الفواتير</a>
+  <a href="checks.html">🧾 الشيكات</a>
+  <a href="targets.html">🎯 الأهداف</a>
+  <a href="dealer-targets.html" class="active">🎯 تارجت التجار</a>
+  <a href="analytics.html">📊 تحليل المبيعات</a>
+</nav>
+
+<h1>🎯 تارجت التجار</h1>
+<p class="muted">تارجت القيمة على 3 Slabs موزع على شهور السنة، والبوتاجاز بالعدد (سنوي + أرباع). المحقق من المسلَّم فعلياً بتاريخ التسليم ناقص المرتجعات. <b>القيمة زي ما هي في الفاتورة بعد خصم التاجر، من غير ÷1.14.</b></p>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>كل التجار</h2>
+    <div class="filters">
+      <span class="muted">السنة</span>
+      <select id="f_year"></select>
+    </div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>التاجر</th><th>المحقق</th><th>وصل لـ</th><th>Slab 1 %</th><th>Slab 2 %</th><th>Slab 3 %</th>
+      <th>الباقي للـ Slab الجاي</th><th>مطلوب/شهر</th><th>البوتاجاز (محقق/سنوي)</th>
+    </tr></thead>
+    <tbody id="overviewBody"></tbody>
+  </table>
+  <p class="muted" id="overviewEmpty" style="display:none">لسه مفيش تارجت مسجّل للسنة دي. اختار تاجر من تحت وسجّل أرقامه.</p>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>تاجر معيّن</h2>
+    <div class="filters">
+      <select id="f_customer" style="min-width:220px;"></select>
+    </div>
+  </div>
+  <div id="progressBox"></div>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>إدخال / تعديل التارجت</h2>
+  </div>
+  <p class="muted">اكتب الـ 3 Slabs السنوية وزّعها على الشهور (زرار التوزيع بالتساوي، وبعدها عدّل أي شهر). لو مجموع الشهور مختلف عن السنوي هيظهر تنبيه.</p>
+
+  <h3>💰 القيمة (ج.م)</h3>
+  <table>
+    <thead><tr><th>الشهر</th><th>Slab 1</th><th>Slab 2</th><th>Slab 3</th></tr></thead>
+    <tbody id="editBody"></tbody>
+    <tfoot>
+      <tr class="sumrow"><td>مجموع الشهور</td><td id="sum_0">0</td><td id="sum_1">0</td><td id="sum_2">0</td></tr>
+      <tr><td><b>السنوي</b></td>
+        <td><input type="number" min="0" step="any" id="annual_0"></td>
+        <td><input type="number" min="0" step="any" id="annual_1"></td>
+        <td><input type="number" min="0" step="any" id="annual_2"></td></tr>
+      <tr><td></td>
+        <td><button type="button" class="secondary" data-dist="0">وزّع بالتساوي</button></td>
+        <td><button type="button" class="secondary" data-dist="1">وزّع بالتساوي</button></td>
+        <td><button type="button" class="secondary" data-dist="2">وزّع بالتساوي</button></td></tr>
+    </tfoot>
+  </table>
+  <div id="valueWarn"></div>
+
+  <h3>🔥 البوتاجاز (قطع)</h3>
+  <table>
+    <thead><tr><th>السنوي</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>مجموع الأرباع</th></tr></thead>
+    <tbody><tr>
+      <td><input type="number" min="0" step="1" id="cook_annual"></td>
+      <td><input type="number" min="0" step="1" id="cook_q0"></td>
+      <td><input type="number" min="0" step="1" id="cook_q1"></td>
+      <td><input type="number" min="0" step="1" id="cook_q2"></td>
+      <td><input type="number" min="0" step="1" id="cook_q3"></td>
+      <td id="cook_sum">0</td>
+    </tr></tbody>
+  </table>
+  <div class="actions"><button type="button" class="secondary" id="btnCookDist">وزّع على الأرباع بالتساوي</button></div>
+  <div id="cookWarn"></div>
+
+  <div class="actions">
+    <button type="button" id="btnSave">💾 حفظ تارجت التاجر</button>
+    <button type="button" class="danger" id="btnDelete">🗑 مسح تارجت التاجر للسنة دي</button>
+  </div>
+</div>
+
+<script type="module">
+import {
+  esc, initStorage, getAll, STORAGE_KEYS,
+  DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, deleteDealerTarget,
+  getDealerTargetProgress, getDealerTargetsOverview,
+} from './erp-data-layer.js';
+
+initStorage();
+
+const MONTHS = ['يناير', 'فبراير', 'مارس', 'إبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+const fmt = (n) => (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+const pct = (n) => (n === null || n === undefined ? '-' : `${n}%`);
+const $ = (id) => document.getElementById(id);
+const state = { year: new Date().getFullYear(), customerId: null };
+
+function numVal(id) { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : 0; }
+
+// ---------- فلاتر ----------
+function initFilters() {
+  const nowY = new Date().getFullYear();
+  const ys = new Set([nowY - 1, nowY, nowY + 1]);
+  getAll(STORAGE_KEYS.DEALER_TARGETS).forEach((r) => ys.add(Number(r.year)));
+  const years = [...ys].sort();
+  $('f_year').innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join('');
+  $('f_year').value = state.year;
+  renderCustomerSelect();
+}
+function renderCustomerSelect() {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS).slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  $('f_customer').innerHTML = customers.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.code ? ' (' + esc(c.code) + ')' : ''}</option>`).join('');
+  if (!customers.some((c) => c.id === state.customerId)) state.customerId = customers.length ? customers[0].id : null;
+  if (state.customerId) $('f_customer').value = state.customerId;
+}
+
+// ---------- نظرة عامة ----------
+function renderOverview() {
+  const rows = getDealerTargetsOverview(state.year).filter((x) => x.progress.hasTargets);
+  $('overviewEmpty').style.display = rows.length ? 'none' : 'block';
+  // الأول: المتأخرين عن Slab 1، وبعدين الأقرب لـ Slab أعلى
+  rows.sort((a, b) => (b.progress.behindSlab1 - a.progress.behindSlab1) || a.customer.name.localeCompare(b.customer.name, 'ar'));
+  $('overviewBody').innerHTML = rows.map(({ customer, progress: p }) => {
+    const reachedLabel = p.reachedCount ? DEALER_SLAB_NAMES[p.reachedCount - 1] : '—';
+    const next = p.next;
+    const cls = (s) => (s.reached ? 'good' : p.behindSlab1 && s === p.slabs[0] ? 'bad' : '');
+    return `<tr class="clickable ${customer.id === state.customerId ? 'sel' : ''}" data-id="${esc(customer.id)}">
+      <td>${esc(customer.name)}${p.behindSlab1 ? ' <span class="bad">⚠ متأخر</span>' : ''}</td>
+      <td>${fmt(p.achieved.total)}</td>
+      <td class="${p.reachedCount ? 'good' : ''}">${reachedLabel}</td>
+      ${p.slabs.map((s) => `<td class="${cls(s)}">${pct(s.pctAnnual)}</td>`).join('')}
+      <td>${next ? `${fmt(next.remaining)} <span class="muted">(${next.name})</span>` : (p.slabs.some((s) => s.annual > 0) ? '<span class="good">كل الـ Slabs اتحققت</span>' : '-')}</td>
+      <td>${next && next.requiredPerMonth !== null ? fmt(next.requiredPerMonth) : '-'}</td>
+      <td>${p.cookers.annual > 0 ? `${fmt(p.cookers.achieved)} / ${fmt(p.cookers.annual)}` : '-'}</td>
+    </tr>`;
+  }).join('');
+  $('overviewBody').querySelectorAll('tr[data-id]').forEach((tr) => tr.addEventListener('click', () => {
+    state.customerId = tr.dataset.id; $('f_customer').value = state.customerId; renderAll();
+    $('progressBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+}
+
+// ---------- تقدم تاجر ----------
+function slabCard(s, p) {
+  if (!(s.annual > 0)) return `<div class="slab"><div class="title">${s.name}</div><p class="muted">مفيش رقم متسجل.</p></div>`;
+  const w = Math.min(s.pctAnnual || 0, 100);
+  const bar = s.reached ? 'full' : (s.pctYtd !== null && s.pctYtd < 100 ? 'under' : '');
+  return `<div class="slab ${s.reached ? 'reached' : ''}">
+    <div class="title"><span>${s.name}</span><span class="${s.reached ? 'good' : ''}">${s.reached ? '✅ اتحقق' : pct(s.pctAnnual)}</span></div>
+    <div class="big">${fmt(s.annual)}</div>
+    <div class="bar ${bar}"><span style="width:${w}%"></span></div>
+    <div class="line"><span>المطلوب لحد دلوقتي</span><b>${fmt(s.ytdTarget)}</b></div>
+    <div class="line"><span>المحقق مقابله</span><b class="${s.pctYtd !== null && s.pctYtd < 100 ? 'bad' : 'good'}">${pct(s.pctYtd)}</b></div>
+    <div class="line"><span>الباقي للسنوي</span><b>${fmt(s.remaining)}</b></div>
+    <div class="line"><span>مطلوب شهرياً (باقي ${p.monthsLeft} شهر)</span><b>${s.requiredPerMonth === null ? '-' : fmt(s.requiredPerMonth)}</b></div>
+  </div>`;
+}
+
+function renderProgress() {
+  const box = $('progressBox');
+  if (!state.customerId) { box.innerHTML = '<p class="muted">مفيش تجار. أضفهم من صفحة العملاء.</p>'; return; }
+  const p = getDealerTargetProgress(state.customerId, state.year);
+  if (!p.hasTargets) {
+    box.innerHTML = `<p class="muted">لسه مفيش تارجت للتاجر ده في ${state.year}. سجّله من الجزء اللي تحت.</p>
+      <div class="kpis"><div class="kpi"><div class="label">المحقق فعلياً في ${state.year}</div><div class="value">${fmt(p.achieved.total)}</div></div>
+      <div class="kpi"><div class="label">بوتاجاز مسلَّم</div><div class="value">${fmt(p.achieved.cookersTotal)}</div></div></div>`;
+    return;
+  }
+  const t = p.target;
+  const nextTxt = p.next
+    ? `الباقي لـ ${p.next.name}: <b>${fmt(p.next.remaining)}</b>${p.next.requiredPerMonth !== null ? ` (مطلوب ${fmt(p.next.requiredPerMonth)} / شهر مقابل متوسطه الفعلي ${fmt(p.runRate)})` : ''}`
+    : 'كل الـ Slabs المسجلة اتحققت 🎉';
+  let monthRows = '';
+  for (let i = 0; i < 12; i++) {
+    const cumS1 = t.monthly[0].slice(0, i + 1).reduce((a, b) => a + b, 0);
+    const future = i + 1 > p.curMonth;
+    const ach = p.achieved.monthly[i];
+    monthRows += `<tr>
+      <td>${MONTHS[i]}</td>
+      ${[0, 1, 2].map((k) => `<td>${t.monthly[k][i] ? fmt(t.monthly[k][i]) : '-'}</td>`).join('')}
+      <td>${future && !ach ? '-' : fmt(ach)}</td>
+      <td>${future && !ach ? '-' : fmt(p.cumAchieved[i])}</td>
+      <td class="${!future && cumS1 > 0 ? (p.cumAchieved[i] >= cumS1 ? 'good' : 'bad') : ''}">${!future && cumS1 > 0 ? fmt(p.cumAchieved[i] - cumS1) : '-'}</td>
+    </tr>`;
+  }
+  const c = p.cookers;
+  const cookQ = c.quarters.map((q) => `<tr class="${q.q === c.currentQuarter ? 'sel' : ''}"><td>Q${q.q}${q.q === c.currentQuarter ? ' (الحالي)' : ''}</td><td>${fmt(q.target)}</td><td>${fmt(q.achieved)}</td><td class="${q.target > 0 ? (q.remaining > 0 ? 'warn' : 'good') : ''}">${q.target > 0 ? fmt(q.remaining) : '-'}</td></tr>`).join('');
+  box.innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="label">المحقق (من يناير)</div><div class="value">${fmt(p.achieved.total)}</div></div>
+      <div class="kpi"><div class="label">وصل لـ</div><div class="value">${p.reachedCount ? DEALER_SLAB_NAMES[p.reachedCount - 1] : 'لسه تحت Slab 1'}</div></div>
+      <div class="kpi"><div class="label">متوسط شهري فعلي</div><div class="value">${fmt(p.runRate)}</div></div>
+    </div>
+    <div class="note">${nextTxt}</div>
+    <div class="grid3">${p.slabs.map((s) => slabCard(s, p)).join('')}</div>
+
+    <h3>التفصيل الشهري (القيمة)</h3>
+    <table>
+      <thead><tr><th>الشهر</th><th>Slab 1</th><th>Slab 2</th><th>Slab 3</th><th>المحقق</th><th>تراكمي المحقق</th><th>الفرق عن تراكمي Slab 1</th></tr></thead>
+      <tbody>${monthRows}</tbody>
+    </table>
+
+    <h3>🔥 البوتاجاز (قطع)</h3>
+    ${c.annual > 0 ? `
+    <div class="kpis">
+      <div class="kpi"><div class="label">المحقق / السنوي</div><div class="value">${fmt(c.achieved)} / ${fmt(c.annual)}</div></div>
+      <div class="kpi"><div class="label">الباقي للسنوي</div><div class="value ${c.remaining > 0 ? '' : 'good'}">${fmt(c.remaining)}</div></div>
+      <div class="kpi"><div class="label">مطلوب كل ربع (باقي ${c.quartersLeft})</div><div class="value">${c.requiredPerQuarter === null ? '-' : fmt(c.requiredPerQuarter)}</div></div>
+    </div>
+    <div class="bar ${c.pct >= 100 ? 'full' : ''}"><span style="width:${Math.min(c.pct || 0, 100)}%"></span></div>
+    <table><thead><tr><th>الربع</th><th>التارجت</th><th>المحقق</th><th>الباقي</th></tr></thead><tbody>${cookQ}</tbody></table>`
+    : '<p class="muted">مفيش تارجت بوتاجاز للتاجر ده.</p>'}`;
+}
+
+// ---------- الإدخال ----------
+let cur = null; // التارجت اللي بيتعدّل حالياً
+function loadEditor() {
+  if (!state.customerId) { $('editBody').innerHTML = ''; return; }
+  cur = getDealerTarget(state.customerId, state.year);
+  $('editBody').innerHTML = MONTHS.map((m, i) => `<tr><td>${m}</td>${[0, 1, 2].map((k) => `<td><input type="number" min="0" step="any" data-k="${k}" data-m="${i}" value="${cur.monthly[k][i] || ''}"></td>`).join('')}</tr>`).join('');
+  [0, 1, 2].forEach((k) => { $(`annual_${k}`).value = cur.slabs[k] || ''; });
+  $('cook_annual').value = cur.cookersAnnual || '';
+  [0, 1, 2, 3].forEach((q) => { $(`cook_q${q}`).value = cur.cookersQuarters[q] || ''; });
+  $('editBody').querySelectorAll('input').forEach((i) => i.addEventListener('input', updateSums));
+  updateSums();
+}
+function readEditor() {
+  const monthly = [0, 1, 2].map(() => Array(12).fill(0));
+  $('editBody').querySelectorAll('input').forEach((i) => { const v = Number(i.value); monthly[Number(i.dataset.k)][Number(i.dataset.m)] = Number.isFinite(v) && v > 0 ? v : 0; });
+  return {
+    slabs: [0, 1, 2].map((k) => numVal(`annual_${k}`)), monthly,
+    cookersAnnual: numVal('cook_annual'), cookersQuarters: [0, 1, 2, 3].map((q) => numVal(`cook_q${q}`)),
+  };
+}
+function updateSums() {
+  const d = readEditor();
+  const warns = [];
+  [0, 1, 2].forEach((k) => {
+    const s = Math.round(d.monthly[k].reduce((a, b) => a + b, 0) * 100) / 100;
+    $(`sum_${k}`).textContent = fmt(s);
+    if (d.slabs[k] > 0 && Math.abs(s - d.slabs[k]) > 0.5) warns.push(`${DEALER_SLAB_NAMES[k]}: مجموع الشهور ${fmt(s)} مختلف عن السنوي ${fmt(d.slabs[k])} (الفرق ${fmt(s - d.slabs[k])})`);
+    if (d.slabs[k] === 0 && s > 0) warns.push(`${DEALER_SLAB_NAMES[k]}: فيه أرقام شهرية بس السنوي فاضي`);
+  });
+  $('valueWarn').innerHTML = warns.length ? `<div class="note">⚠ ${warns.join('<br>⚠ ')}</div>` : '';
+  const cs = d.cookersQuarters.reduce((a, b) => a + b, 0);
+  $('cook_sum').textContent = fmt(cs);
+  $('cookWarn').innerHTML = d.cookersAnnual > 0 && cs !== d.cookersAnnual ? `<div class="note">⚠ مجموع الأرباع ${fmt(cs)} مختلف عن السنوي ${fmt(d.cookersAnnual)}</div>` : '';
+}
+
+document.querySelectorAll('[data-dist]').forEach((b) => b.addEventListener('click', () => {
+  const k = Number(b.dataset.dist), total = numVal(`annual_${k}`);
+  if (!total) { alert('اكتب الرقم السنوي الأول'); return; }
+  const parts = distributeEvenly(total, 12);
+  $('editBody').querySelectorAll(`input[data-k="${k}"]`).forEach((i) => { i.value = parts[Number(i.dataset.m)]; });
+  updateSums();
+}));
+$('btnCookDist').addEventListener('click', () => {
+  const total = numVal('cook_annual');
+  if (!total) { alert('اكتب الرقم السنوي للبوتاجاز الأول'); return; }
+  distributeCount(total, 4).forEach((v, q) => { $(`cook_q${q}`).value = v; });
+  updateSums();
+});
+['annual_0', 'annual_1', 'annual_2', 'cook_annual', 'cook_q0', 'cook_q1', 'cook_q2', 'cook_q3'].forEach((id) => $(id).addEventListener('input', updateSums));
+
+$('btnSave').addEventListener('click', () => {
+  if (!state.customerId) { alert('اختار تاجر الأول'); return; }
+  const d = readEditor();
+  if (!d.slabs.some((v) => v > 0) && !d.cookersAnnual) { alert('اكتب رقم واحد على الأقل (Slab أو بوتاجاز)'); return; }
+  const rec = saveDealerTarget(state.customerId, state.year, d);
+  if (!rec) { alert('⚠ تعذّر الحفظ — اعمل نسخة احتياطية وفرّغ مساحة'); return; }
+  renderAll();
+  alert('تم حفظ التارجت ✅');
+});
+$('btnDelete').addEventListener('click', () => {
+  if (!state.customerId) return;
+  if (!confirm('تأكيد مسح تارجت التاجر ده للسنة دي؟')) return;
+  deleteDealerTarget(state.customerId, state.year);
+  renderAll();
+});
+
+$('f_year').addEventListener('change', (e) => { state.year = Number(e.target.value); renderAll(); });
+$('f_customer').addEventListener('change', (e) => { state.customerId = e.target.value; renderAll(); });
+
+function renderAll() { renderOverview(); renderProgress(); loadEditor(); }
+
+initFilters();
+renderAll();
+</script>
+</body>
+</html>

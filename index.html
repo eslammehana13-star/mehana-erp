@@ -48,6 +48,7 @@
   <a href="invoices.html">📄 الفواتير</a>
   <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
+  <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html">📊 تحليل البيانات</a>
 </nav>
 
@@ -60,6 +61,12 @@
 </div>
 
 <div id="alertsBox"></div>
+
+<div class="card" id="dealerBehindCard" style="display:none;">
+  <h2>🎯 تجار متأخرين عن Slab 1</h2>
+  <table><thead><tr><th>التاجر</th><th>المحقق</th><th>المطلوب لحد دلوقتي</th><th>الفرق</th><th>مطلوب/شهر لـ Slab 1</th></tr></thead><tbody id="dealerBehind"></tbody></table>
+  <p class="muted"><a href="dealer-targets.html">فتح تارجت التجار ←</a></p>
+</div>
 
 <div class="card">
   <div class="toolbar" style="display:flex; justify-content:space-between; align-items:center;">
@@ -89,7 +96,7 @@ import {
   getCustomerBalance, getAllCustomerBalances, getOverCreditLimitCustomers,
   getLowStockAlerts, getChecksDueSoon, getOrdersNeedingRenewal,
   getTopCustomers, getTopProducts, getMonthlyScorecard, getDaysSinceLastBackup,
-  getActiveOrders, getAgingReport,
+  getActiveOrders, getAgingReport, getDealerTargetsOverview,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -147,6 +154,14 @@ function renderAlerts() {
   }
 
   box.innerHTML = sections.length ? sections.join('') : '<p class="all-clear">✅ مفيش تنبيهات دلوقتي — كل حاجة تمام.</p>';
+}
+
+function renderDealerBehind() {
+  const rows = getDealerTargetsOverview(new Date().getFullYear()).filter((x) => x.progress.behindSlab1)
+    .map((x) => ({ name: x.customer.name, ach: x.progress.achieved.total, ytd: x.progress.slabs[0].ytdTarget, req: x.progress.slabs[0].requiredPerMonth }))
+    .sort((a, b) => (a.ach - a.ytd) - (b.ach - b.ytd)).slice(0, 8);
+  document.getElementById('dealerBehindCard').style.display = rows.length ? 'block' : 'none';
+  document.getElementById('dealerBehind').innerHTML = rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.ach.toLocaleString()}</td><td>${r.ytd.toLocaleString()}</td><td style="color:var(--danger);font-weight:700;">${(r.ach - r.ytd).toLocaleString()}</td><td>${r.req === null ? '-' : r.req.toLocaleString()}</td></tr>`).join('');
 }
 
 function renderTopLists() {
@@ -231,6 +246,7 @@ document.getElementById('btnMonthlyReport').addEventListener('click', exportMont
 
 renderKpis();
 renderAlerts();
+renderDealerBehind();
 renderTopLists();
 </script>
 </body>
