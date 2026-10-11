@@ -39,6 +39,9 @@
   .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-bottom: 8px; }
   .slab { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #FAFBFA; }
   .slab.reached { border-color: var(--ok); background: #EEF8F1; }
+  .slab.focus { border: 2px solid var(--warn-border); box-shadow: 0 0 0 3px rgba(184,134,46,0.18); }
+  .focus-badge { font-weight: 700; color: #7A5A19; }
+  button.mini { padding: 3px 8px; font-size: 12px; }
   .slab .title { font-weight: 700; display: flex; justify-content: space-between; gap: 6px; }
   .slab .big { font-size: 20px; font-weight: 700; color: var(--primary-dark); margin: 4px 0; }
   .slab .line { font-size: 13px; margin: 3px 0; display: flex; justify-content: space-between; gap: 8px; }
@@ -85,8 +88,8 @@
   </div>
   <table>
     <thead><tr>
-      <th>التاجر</th><th>المحقق</th><th>وصل لـ</th><th>Slab 1 %</th><th>Slab 2 %</th><th>Slab 3 %</th>
-      <th>الباقي للـ Slab الجاي</th><th>مطلوب/شهر</th><th>البوتاجاز (محقق/سنوي)</th>
+      <th>التاجر</th><th>المحقق</th><th>وصل لـ</th><th>شغال على</th><th>Slab 1 %</th><th>Slab 2 %</th><th>Slab 3 %</th>
+      <th>الباقي للـ Slab ده</th><th>مطلوب/شهر</th><th>البوتاجاز (محقق/سنوي)</th>
     </tr></thead>
     <tbody id="overviewBody"></tbody>
   </table>
@@ -127,6 +130,12 @@
   </table>
   <div id="valueWarn"></div>
 
+  <h3>🎯 الـ Slab اللي شغال عليه</h3>
+  <select id="focusSlab">
+    <option value="">تلقائي (أول Slab لسه ما اتحققش)</option>
+    <option value="0">Slab 1</option><option value="1">Slab 2</option><option value="2">Slab 3</option>
+  </select>
+
   <h3>🔥 البوتاجاز (قطع)</h3>
   <table>
     <thead><tr><th>السنوي</th><th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th><th>مجموع الأرباع</th></tr></thead>
@@ -151,7 +160,7 @@
 <script type="module">
 import {
   esc, initStorage, getAll, STORAGE_KEYS,
-  DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, deleteDealerTarget,
+  DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, setDealerFocus, deleteDealerTarget,
   getDealerTargetProgress, getDealerTargetsOverview, getDealerNotCounted, getStatusMismatchOrders,
 } from './erp-data-layer.js';
 
@@ -190,15 +199,16 @@ function renderOverview() {
   rows.sort((a, b) => (b.progress.behindSlab1 - a.progress.behindSlab1) || a.customer.name.localeCompare(b.customer.name, 'ar'));
   $('overviewBody').innerHTML = rows.map(({ customer, progress: p }) => {
     const reachedLabel = p.reachedCount ? DEALER_SLAB_NAMES[p.reachedCount - 1] : '—';
-    const next = p.next;
+    const next = p.focus.slab;
     const cls = (s) => (s.reached ? 'good' : p.behindSlab1 && s === p.slabs[0] ? 'bad' : '');
     return `<tr class="clickable ${customer.id === state.customerId ? 'sel' : ''}" data-id="${esc(customer.id)}">
       <td>${esc(customer.name)}${p.behindSlab1 ? ' <span class="bad">⚠ متأخر</span>' : ''}</td>
       <td>${fmt(p.achieved.total)}</td>
       <td class="${p.reachedCount ? 'good' : ''}">${reachedLabel}</td>
+      <td>${p.focus.slab ? `🎯 <b>${p.focus.slab.name}</b>${p.focus.pinned ? ' 📌' : ''}` : '-'}</td>
       ${p.slabs.map((s) => `<td class="${cls(s)}">${pct(s.pctAnnual)}</td>`).join('')}
-      <td>${next ? `${fmt(next.remaining)} <span class="muted">(${next.name})</span>` : (p.slabs.some((s) => s.annual > 0) ? '<span class="good">كل الـ Slabs اتحققت</span>' : '-')}</td>
-      <td>${next && next.requiredPerMonth !== null ? fmt(next.requiredPerMonth) : '-'}</td>
+      <td>${next ? `${fmt(next.remaining)} ${next.reached ? '<span class="good">اتحقق ✅</span>' : ''}` : (p.slabs.some((s) => s.annual > 0) ? '<span class="good">كل الـ Slabs اتحققت</span>' : '-')}</td>
+      <td>${next && !next.reached && next.requiredPerMonth !== null ? fmt(next.requiredPerMonth) : '-'}</td>
       <td>${p.cookers.annual > 0 ? `${fmt(p.cookers.achieved)} / ${fmt(p.cookers.annual)}` : '-'}</td>
     </tr>`;
   }).join('');
@@ -222,11 +232,15 @@ function statusInfoHtml(customerId) {
 }
 
 // ---------- تقدم تاجر ----------
-function slabCard(s, p) {
+function slabCard(s, p, idx) {
   if (!(s.annual > 0)) return `<div class="slab"><div class="title">${s.name}</div><p class="muted">مفيش رقم متسجل.</p></div>`;
   const w = Math.min(s.pctAnnual || 0, 100);
   const bar = s.reached ? 'full' : (s.pctYtd !== null && s.pctYtd < 100 ? 'under' : '');
-  return `<div class="slab ${s.reached ? 'reached' : ''}">
+  const isFocus = p.focus.index === idx;
+  const focusBtn = isFocus
+    ? `<div class="line"><span class="focus-badge">🎯 شغال على ده${p.focus.pinned ? ' (مثبّت 📌)' : ' (تلقائي)'}</span>${p.focus.pinned ? `<button type="button" class="secondary mini" data-focus="auto">تلقائي</button>` : ''}</div>`
+    : `<div class="line"><span></span><button type="button" class="secondary mini" data-focus="${idx}">🎯 اشتغل على ده</button></div>`;
+  return `<div class="slab ${s.reached ? 'reached' : ''} ${isFocus ? 'focus' : ''}">
     <div class="title"><span>${s.name}</span><span class="${s.reached ? 'good' : ''}">${s.reached ? '✅ اتحقق' : pct(s.pctAnnual)}</span></div>
     <div class="big">${fmt(s.annual)}</div>
     <div class="bar ${bar}"><span style="width:${w}%"></span></div>
@@ -234,6 +248,7 @@ function slabCard(s, p) {
     <div class="line"><span>المحقق مقابله</span><b class="${s.pctYtd !== null && s.pctYtd < 100 ? 'bad' : 'good'}">${pct(s.pctYtd)}</b></div>
     <div class="line"><span>الباقي للسنوي</span><b>${fmt(s.remaining)}</b></div>
     <div class="line"><span>مطلوب شهرياً (باقي ${p.monthsLeft} شهر)</span><b>${s.requiredPerMonth === null ? '-' : fmt(s.requiredPerMonth)}</b></div>
+    ${focusBtn}
   </div>`;
 }
 
@@ -248,8 +263,11 @@ function renderProgress() {
     return;
   }
   const t = p.target;
-  const nextTxt = p.next
-    ? `الباقي لـ ${p.next.name}: <b>${fmt(p.next.remaining)}</b>${p.next.requiredPerMonth !== null ? ` (مطلوب ${fmt(p.next.requiredPerMonth)} / شهر مقابل متوسطه الفعلي ${fmt(p.runRate)})` : ''}`
+  const f = p.focus.slab;
+  const nextTxt = f
+    ? (f.reached
+      ? `🎯 شغال على <b>${f.name}</b>${p.focus.pinned ? ' 📌' : ''}: اتحقق ✅`
+      : `🎯 شغال على <b>${f.name}</b>${p.focus.pinned ? ' 📌' : ''}: الباقي <b>${fmt(f.remaining)}</b>${f.requiredPerMonth !== null ? ` (مطلوب ${fmt(f.requiredPerMonth)} / شهر مقابل متوسطه الفعلي ${fmt(p.runRate)})` : ''}`)
     : 'كل الـ Slabs المسجلة اتحققت 🎉';
   let monthRows = '';
   for (let i = 0; i < 12; i++) {
@@ -274,7 +292,7 @@ function renderProgress() {
     </div>
     ${statusInfoHtml(state.customerId)}
     <div class="note">${nextTxt}</div>
-    <div class="grid3">${p.slabs.map((s) => slabCard(s, p)).join('')}</div>
+    <div class="grid3">${p.slabs.map((s, i) => slabCard(s, p, i)).join('')}</div>
 
     <h3>التفصيل الشهري (القيمة)</h3>
     <table>
@@ -294,6 +312,13 @@ function renderProgress() {
     : '<p class="muted">مفيش تارجت بوتاجاز للتاجر ده.</p>'}`;
 }
 
+function wireFocusButtons() {
+  $('progressBox').querySelectorAll('[data-focus]').forEach((b) => b.addEventListener('click', () => {
+    setDealerFocus(state.customerId, state.year, b.dataset.focus === 'auto' ? null : Number(b.dataset.focus));
+    renderAll();
+  }));
+}
+
 // ---------- الإدخال ----------
 let cur = null; // التارجت اللي بيتعدّل حالياً
 function loadEditor() {
@@ -301,6 +326,7 @@ function loadEditor() {
   cur = getDealerTarget(state.customerId, state.year);
   $('editBody').innerHTML = MONTHS.map((m, i) => `<tr><td>${m}</td>${[0, 1, 2].map((k) => `<td><input type="number" min="0" step="any" data-k="${k}" data-m="${i}" value="${cur.monthly[k][i] || ''}"></td>`).join('')}</tr>`).join('');
   [0, 1, 2].forEach((k) => { $(`annual_${k}`).value = cur.slabs[k] || ''; });
+  $('focusSlab').value = cur.focusSlab === null || cur.focusSlab === undefined ? '' : String(cur.focusSlab);
   $('cook_annual').value = cur.cookersAnnual || '';
   [0, 1, 2, 3].forEach((q) => { $(`cook_q${q}`).value = cur.cookersQuarters[q] || ''; });
   $('editBody').querySelectorAll('input').forEach((i) => i.addEventListener('input', updateSums));
@@ -311,7 +337,7 @@ function readEditor() {
   $('editBody').querySelectorAll('input').forEach((i) => { const v = Number(i.value); monthly[Number(i.dataset.k)][Number(i.dataset.m)] = Number.isFinite(v) && v > 0 ? v : 0; });
   return {
     slabs: [0, 1, 2].map((k) => numVal(`annual_${k}`)), monthly,
-    cookersAnnual: numVal('cook_annual'), cookersQuarters: [0, 1, 2, 3].map((q) => numVal(`cook_q${q}`)),
+    focusSlab: $('focusSlab').value, cookersAnnual: numVal('cook_annual'), cookersQuarters: [0, 1, 2, 3].map((q) => numVal(`cook_q${q}`)),
   };
 }
 function updateSums() {
@@ -363,7 +389,7 @@ $('btnDelete').addEventListener('click', () => {
 $('f_year').addEventListener('change', (e) => { state.year = Number(e.target.value); renderAll(); });
 $('f_customer').addEventListener('change', (e) => { state.customerId = e.target.value; renderAll(); });
 
-function renderAll() { renderOverview(); renderProgress(); loadEditor(); }
+function renderAll() { renderOverview(); renderProgress(); wireFocusButtons(); loadEditor(); }
 
 initFilters();
 renderAll();

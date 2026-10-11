@@ -834,7 +834,8 @@ function updateOrderStatus(orderId, status) {
 /** طلبيات حالتها مش مطابقة لحالة أصنافها (للمراجعة): مثلاً الطلبية مش Delivered وفيها أصناف Delivered محسوبة في المحقق */
 function getStatusMismatchOrders(customerId = null) {
   return getReportOrders()
-    .filter((o) => (!customerId || o.customerId === customerId) && o.items.length)
+    // الطلبيات المستوردة من الساب (تاريخية) حالة أصنافها جاية من الساب وممكن تبقى تسليم جزئي بشكل طبيعي، فمش بتتحسب كتعارض
+    .filter((o) => !o.historicalImport && (!customerId || o.customerId === customerId) && o.items.length)
     .filter((o) => {
       const del = o.items.filter((it) => it.status === 'delivered').length;
       return o.status === 'delivered' ? del < o.items.length : del > 0;
@@ -2224,11 +2225,18 @@ function distributeCount(total, n = 4) {
 }
 
 function emptyDealerTarget(customerId, year) {
-  return { customerId, year: Number(year), slabs: [0, 0, 0], monthly: [Array(12).fill(0), Array(12).fill(0), Array(12).fill(0)], cookersAnnual: 0, cookersQuarters: [0, 0, 0, 0], saved: false };
+  return { customerId, year: Number(year), slabs: [0, 0, 0], monthly: [Array(12).fill(0), Array(12).fill(0), Array(12).fill(0)], cookersAnnual: 0, cookersQuarters: [0, 0, 0, 0], focusSlab: null, saved: false };
 }
 function getDealerTarget(customerId, year) {
   const rec = getAll(STORAGE_KEYS.DEALER_TARGETS).find((r) => r.customerId === customerId && Number(r.year) === Number(year));
   return rec ? { ...emptyDealerTarget(customerId, year), ...rec, saved: true } : emptyDealerTarget(customerId, year);
+}
+/** الـ Slab اللي شغال عليه: 0/1/2 أو null (تلقائي = أول Slab لسه ما اتحققش) */
+function normFocus(f) { const n = f === null || f === undefined || f === '' ? NaN : Number(f); return Number.isInteger(n) && n >= 0 && n <= 2 ? n : null; }
+/** تثبيت (أو إلغاء تثبيت) الـ Slab اللي شغال عليه لتاجر من غير ما تلمس باقي أرقامه */
+function setDealerFocus(customerId, year, focus) {
+  const existing = getAll(STORAGE_KEYS.DEALER_TARGETS).find((r) => r.customerId === customerId && Number(r.year) === Number(year));
+  return existing ? updateRecord(STORAGE_KEYS.DEALER_TARGETS, existing.id, { focusSlab: normFocus(focus) }) : null;
 }
 function saveDealerTarget(customerId, year, data) {
   const num = (v) => Math.max(Number(v) || 0, 0);
@@ -2238,6 +2246,7 @@ function saveDealerTarget(customerId, year, data) {
     monthly: [0, 1, 2].map((i) => Array.from({ length: 12 }, (_, m) => r2(num(((data.monthly || [])[i] || [])[m])))),
     cookersAnnual: Math.round(num(data.cookersAnnual)),
     cookersQuarters: Array.from({ length: 4 }, (_, q) => Math.round(num((data.cookersQuarters || [])[q]))),
+    focusSlab: normFocus(data.focusSlab),
   };
   const existing = getAll(STORAGE_KEYS.DEALER_TARGETS).find((r) => r.customerId === customerId && Number(r.year) === Number(year));
   return existing ? updateRecord(STORAGE_KEYS.DEALER_TARGETS, existing.id, rec) : addRecord(STORAGE_KEYS.DEALER_TARGETS, rec);
@@ -2284,12 +2293,15 @@ function getDealerTargetProgress(customerId, year, now = new Date()) {
   });
   const reachedCount = slabs.filter((s) => s.reached).length;
   const next = slabs.find((s) => s.annual > 0 && !s.reached) || null;
+  const pinned = t.focusSlab !== null && t.focusSlab !== undefined && slabs[t.focusSlab] && slabs[t.focusSlab].annual > 0 ? t.focusSlab : null;
+  const focusIndex = pinned !== null ? pinned : (next ? slabs.indexOf(next) : null);
   const q = curMonth === 0 ? 0 : Math.ceil(curMonth / 3), quartersLeft = y < ny ? 0 : y > ny ? 4 : 4 - q + 1;
   const cRemaining = Math.max(t.cookersAnnual - a.cookersTotal, 0);
   return {
     target: t, achieved: a, curMonth, monthsLeft, cumAchieved,
     runRate: curMonth > 0 ? r2(a.total / curMonth) : 0,
-    slabs, reachedCount, next, hasTargets: t.saved && (t.slabs.some((v) => v > 0) || t.cookersAnnual > 0),
+    slabs, reachedCount, next, focus: { index: focusIndex, pinned: pinned !== null, slab: focusIndex !== null ? slabs[focusIndex] : null },
+    hasTargets: t.saved && (t.slabs.some((v) => v > 0) || t.cookersAnnual > 0),
     behindSlab1: slabs[0].ytdTarget > 0 && a.total < slabs[0].ytdTarget,
     cookers: {
       annual: t.cookersAnnual, achieved: a.cookersTotal, remaining: cRemaining,
@@ -2400,7 +2412,7 @@ export {
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
   // تارجت التجار + أساس تاريخ التحليل
   getStatusMismatchOrders, getDealerNotCounted,
-  DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, deleteDealerTarget, getDealerAchieved, getDealerTargetProgress, getDealerTargetsOverview,
+  DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, setDealerFocus, deleteDealerTarget, getDealerAchieved, getDealerTargetProgress, getDealerTargetsOverview,
   getAnalyticsDateBasis, setAnalyticsDateBasis,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
