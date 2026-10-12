@@ -1,0 +1,116 @@
+الاسم	الكود	التصنيف	السعر	الرصيد الافتتاحي	حد الطلب	الوحدة	الوصف
+DWB65BC50T — Wall Chimney Hood - Box Design - Series 2, Stainless steel - 60 cm	DWB65BC50T	MDA | شفاطات	11999	0	0	قطعة	Wall Chimney Hood - Box Design - Series 2, Stainless steel - 60 cm
+DWB95BC50T — Wall Chimney Hood - Box Design - Series 2, Stainless steel - 90 cm	DWB95BC50T	MDA | شفاطات	14499	0	0	قطعة	Wall Chimney Hood - Box Design - Series 2, Stainless steel - 90 cm
+DWK66PJ60T — Wall Chimney Hood - Inclined Design - Series 4, Clear Glass Black - 60 cm	DWK66PJ60T	MDA | شفاطات	14999	0	0	قطعة	Wall Chimney Hood - Inclined Design - Series 4, Clear Glass Black - 60 cm
+DWK67PJ60T — Wall Chimney Hood - Inclined Design - Series 6, Clear Glass Black, with Touchless Control - 60 cm	DWK67PJ60T	MDA | شفاطات	16999	0	0	قطعة	Wall Chimney Hood - Inclined Design - Series 6, Clear Glass Black, with Touchless Control - 60 cm
+DWK96PJ60T — Wall Chimney Hood - Inclined Design - Series 4, Clear Glass Black - 90 cm	DWK96PJ60T	MDA | شفاطات	21999	0	0	قطعة	Wall Chimney Hood - Inclined Design - Series 4, Clear Glass Black - 90 cm
+DWK97PJ60T — Wall Chimney Hood - Inclined Design - Series 6, Clear Glass Black, with Touchless Control - 90 cm	DWK97PJ60T	MDA | شفاطات	24999	0	0	قطعة	Wall Chimney Hood - Inclined Design - Series 6, Clear Glass Black, with Touchless Control - 90 cm
+HGV1F8Y50S — Freestanding Gas Range Cooker - Series 2, Stainless steel - 90 cm	HGV1F8Y50S	بوتاجازات	19999	0	0	قطعة	Freestanding Gas Range Cooker - Series 2, Stainless steel - 90 cm
+HGP3I8W50S — Freestanding Gas Range Cooker - Series 6, Stainless steel - 90 cm	HGP3I8W50S	بوتاجازات	22999	0	0	قطعة	Freestanding Gas Range Cooker - Series 6, Stainless steel - 90 cm
+HGX3G8W50S — Freestanding Gas Range Cooker - Series 6, Stainless steel - 90 cm	HGX3G8W50S	بوتاجازات	28999	0	0	قطعة	Freestanding Gas Range Cooker - Series 6, Stainless steel - 90 cm
+HIZ5G7W51S — Freestanding Gas Range Cooker - Series 8, Stainless steel - 90 cm	HIZ5G7W51S	بوتاجازات	31999	0	0	قطعة	Freestanding Gas Range Cooker - Series 8, Stainless steel - 90 cm
+HJY5G7V61S — Freestanding Gas Range Cooker - Series 8, Black - 90 cm	HJY5G7V61S	بوتاجازات	34999	0	0	قطعة	Freestanding Gas Range Cooker - Series 8, Black - 90 cm
+HJYGGXV60Q — Freestanding Gas Range Cooker - Series 8, Black - 90 cm	HJYGGXV60Q	بوتاجازات	35999	0	0	قطعة	Freestanding Gas Range Cooker - Series 8, Black - 90 cm
+PCP6A5I90M — Gas Hob - Series 6, Stainless steel - 60 cm	PCP6A5I90M	MDA | بيلت إن | مسطح	18999	0	0	قطعة	Gas Hob - Series 6, Stainless steel - 60 cm
+PCP6A6I90 — Gas Hob - Series 6, Enameled steel - 60 cm	PCP6A6I90	MDA | بيلت إن | مسطح	18999	0	0	قطعة	Gas Hob - Series 6, Enameled steel - 60 cm
+PCQ7A5B90 — Gas Hob - Series 6, Stainless Steel - 75 cm	PCQ7A5B90	MDA | بيلت إن | مسطح	21499	0	0	قطعة	Gas Hob - Series 6, Stainless Steel - 75 cm
+PCQ7A5I90 — Gas Hob - Series 6, Stainless Steel - 75 cm	PCQ7A5I90	MDA | بيلت إن | مسطح	22499	0	0	قطعة	Gas Hob - Series 6, Stainless Steel - 75 cm
+PPQ7A6I45 — Gas Hob - Series 6, Tempered Glass, Black - 75 cm	PPQ7A6I45	MDA | بيلت إن | مسطح	24499	0	0	قطعة	Gas Hob - Series 6, Tempered Glass, Black - 75 cm
+PCR9A5I90 — Gas Hob - Series 6, Stainless steel - 90 cm	PCR9A5I90	MDA | بيلت إن | مسطح	31999	0	0	قطعة	Gas Hob - Series 6, Stainless steel - 90 cm
+PPM9A6I40 — Gas Hob - Series 6, Tempered glass, Black - 90 cm	PPM9A6I40	MDA | بيلت إن | مسطح	34999	0	0	قطعة	Gas Hob - Series 6, Tempered glass, Black - 90 cm
+PKF375CA2E — Electric Hob - Series 2, Black, surface mount with frame - 30 cm	PKF375CA2E	MDA | بيلت إن | مسطح	19999	0	0	قطعة	Electric Hob - Series 2, Black, surface mount with frame - 30 cm
+PKF645CA2E — Electric Hob - Series 2, Black, surface mount with frame - 60 cm	PKF645CA2E	MDA | بيلت إن | مسطح	27999	0	0	قطعة	Electric Hob - Series 2, Black, surface mount with frame - 60 cm
+PKE611BA2E — Electric Hob - Series 4, Black, surface mount without frame - 60 cm	PKE611BA2E	MDA | بيلت إن | مسطح	32999	0	0	قطعة	Electric Hob - Series 4, Black, surface mount without frame - 60 cm
+PKN811FP2E — Electric Hob - Series 6, Black, surface mount without frame - 80 cm	PKN811FP2E	MDA | بيلت إن | مسطح	42999	0	0	قطعة	Electric Hob - Series 6, Black, surface mount without frame - 80 cm
+PUE611BB5E — Induction Hob - Series 4, Black - 60 cm	PUE611BB5E	MDA | بيلت إن | مسطح	44999	0	0	قطعة	Induction Hob - Series 4, Black - 60 cm
+PIV975DC1E — Induction Hob - Series 8, Black - 90 cm	PIV975DC1E	MDA | بيلت إن | مسطح	58999	0	0	قطعة	Induction Hob - Series 8, Black - 90 cm
+HGA731BR0S — Gas Oven - Series 4, Stainless steel - 60 cm	HGA731BR0S	MDA | بيلت إن | فرن	27999	0	0	قطعة	Gas Oven - Series 4, Stainless steel - 60 cm
+HGG733EA0S — Gas Oven - Series 6, Black - 60 cm	HGG733EA0S	MDA | بيلت إن | فرن	32999	0	0	قطعة	Gas Oven - Series 6, Black - 60 cm
+HGL21F350 — Gas Oven - Series 6, Stainless Steel - 60 cm	HGL21F350	MDA | بيلت إن | فرن	41999	0	0	قطعة	Gas Oven - Series 6, Stainless Steel - 60 cm
+VGD011BR0M — Gas Oven - Series 2, Stainless Steel - 90 cm	VGD011BR0M	MDA | بيلت إن | فرن	54999	0	0	قطعة	Gas Oven - Series 2, Stainless Steel - 90 cm
+VGD553FR0 — Gas Oven - Series 4, Stainless Steel - 90 cm	VGD553FR0	MDA | بيلت إن | فرن	65999	0	0	قطعة	Gas Oven - Series 4, Stainless Steel - 90 cm
+HBF011BA1T — Electric Oven - Series 2, Black - 60 cm	HBF011BA1T	MDA | بيلت إن | فرن	19999	0	0	قطعة	Electric Oven - Series 2, Black - 60 cm
+HUA736ER0 — Electric Oven - Series 4, Stainless steel, with HotairSteam - 60 cm	HUA736ER0	MDA | بيلت إن | فرن	28999	0	0	قطعة	Electric Oven - Series 4, Stainless steel, with HotairSteam - 60 cm
+HUA736EA0T — Electric Oven - Series 4, Black, with HotairSteam - 60 cm	HUA736EA0T	MDA | بيلت إن | فرن	29999	0	0	قطعة	Electric Oven - Series 4, Black, with HotairSteam - 60 cm
+HJG852YS0 — Electric Oven - Series 6, Stainless steel - 60 cm	HJG852YS0	MDA | بيلت إن | فرن	32999	0	0	قطعة	Electric Oven - Series 6, Stainless steel - 60 cm
+HRG532ES3 — Electric Oven - Series 4, Stainless steel, with AddedSteam - 60 cm	HRG532ES3	MDA | بيلت إن | فرن	36999	0	0	قطعة	Electric Oven - Series 4, Stainless steel, with AddedSteam - 60 cm
+HRG232EB3 — Electric Oven - Series 4, Black, with AddedSteam - 60 cm	HRG232EB3	MDA | بيلت إن | فرن	37999	0	0	قطعة	Electric Oven - Series 4, Black, with AddedSteam - 60 cm
+HBG7563B1 — Electric Oven - Series 8, Black - 60 cm	HBG7563B1	MDA | بيلت إن | فرن	51999	0	0	قطعة	Electric Oven - Series 8, Black - 60 cm
+VBD554FS0 — Electric Oven - Series 4, Stainless steel - 90 cm	VBD554FS0	MDA | بيلت إن | فرن	76999	0	0	قطعة	Electric Oven - Series 4, Stainless steel - 90 cm
+CMG7241B1 — Compact Oven with MW Function - Series 8, 60 x 45 cm, Black - 60 cm	CMG7241B1	MDA | بيلت إن | فرن	74999	0	0	قطعة	Compact Oven with MW Function - Series 8, 60 x 45 cm, Black - 60 cm
+BFL524MB2 — Built-In Microwave - Series 4, 59 x 38 cm, Black	BFL524MB2	MDA | بيلت إن | فرن	29999	0	0	قطعة	Built-In Microwave - Series 4, 59 x 38 cm, Black
+BEL554MS0 — Built-In Microwave - Series 6, 59 x 38 cm, Stainless steel	BEL554MS0	MDA | بيلت إن | فرن	32999	0	0	قطعة	Built-In Microwave - Series 6, 59 x 38 cm, Stainless steel
+BEL554MB2 — Built-In Microwave - Series 6, 59 x 38 cm, Black	BEL554MB2	MDA | بيلت إن | فرن	33999	0	0	قطعة	Built-In Microwave - Series 6, 59 x 38 cm, Black
+FEL023MS1 — Freestanding Microwave - Series 2, 44 x 26 cm, Black	FEL023MS1	MDA | بيلت إن | فرن	11999	0	0	قطعة	Freestanding Microwave - Series 2, 44 x 26 cm, Black
+FEL053MS2 — Freestanding Microwave - Series 2, 49 x 29 cm, Black	FEL053MS2	MDA | بيلت إن | فرن	13999	0	0	قطعة	Freestanding Microwave - Series 2, 49 x 29 cm, Black
+SMS26AI00V — غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل	SMS26AI00V	MDA | غسالات أطباق	28999	0	0	قطعة	غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل
+SMS46NI20V — غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل	SMS46NI20V	MDA | غسالات أطباق	34999	0	0	قطعة	غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل
+SMS46NB20V — غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل	SMS46NB20V	MDA | غسالات أطباق	35999	0	0	قطعة	غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل
+SMS46NI01Q — غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل	SMS46NI01Q	MDA | غسالات أطباق	40999	0	0	قطعة	غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل
+SMS4EMI60V — غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل	SMS4EMI60V	MDA | غسالات أطباق	38999	0	0	قطعة	غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل
+SMS6EMI62V — غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل	SMS6EMI62V	MDA | غسالات أطباق	45999	0	0	قطعة	غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل
+SMP6EMC00V — غسالة اطباق - 60 سم - 14 فرد - اسود	SMP6EMC00V	MDA | غسالات أطباق	48999	0	0	قطعة	غسالة اطباق - 60 سم - 14 فرد - اسود
+SMS6ECI83T — غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل	SMS6ECI83T	MDA | غسالات أطباق	53999	0	0	قطعة	غسالة اطباق - 60 سم - 14 فرد - ستانلس ستيل
+SMS8YDI82T — غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل	SMS8YDI82T	MDA | غسالات أطباق	64999	0	0	قطعة	غسالة اطباق - 60 سم - 13 فرد - ستانلس ستيل
+SMV26DX00T — غسالة اطباق بيلت إن - 14 فرد	SMV26DX00T	MDA | غسالات أطباق	35999	0	0	قطعة	غسالة اطباق بيلت إن - 14 فرد
+SMV4IMX62T — غسالة اطباق بيلت إن - 14 فرد	SMV4IMX62T	MDA | غسالات أطباق	39999	0	0	قطعة	غسالة اطباق بيلت إن - 14 فرد
+WGA244Z1EG — Freestanding Frontloader Fullsize - Series 4, Cast iron grey, with Iron Steam Assist - 9 KG	WGA244Z1EG	MDA | غسالات ملابس	25999	0	0	قطعة	Freestanding Frontloader Fullsize - Series 4, Cast iron grey, with Iron Steam Assist - 9 KG
+WGK254ZXEG — Freestanding Frontloader Fullsize - Series 6, Silver Inox, Home Connect, with Iron Steam Assist - 10 KG	WGK254ZXEG	MDA | غسالات ملابس	28999	0	0	قطعة	Freestanding Frontloader Fullsize - Series 6, Silver Inox, Home Connect, with Iron Steam Assist - 10 KG
+WGK254Z1EG — Freestanding Frontloader Fullsize - Series 6, Cast iron grey, Home Connect, with Iron Steam Assist - 10 KG	WGK254Z1EG	MDA | غسالات ملابس	29999	0	0	قطعة	Freestanding Frontloader Fullsize - Series 6, Cast iron grey, Home Connect, with Iron Steam Assist - 10 KG
+WGB2440XEG — Freestanding Frontloader Fullsize - Series 8, Silver Inox, Home Connect, with Iron Steam Assist - 9 KG	WGB2440XEG	MDA | غسالات ملابس	39999	0	0	قطعة	Freestanding Frontloader Fullsize - Series 8, Silver Inox, Home Connect, with Iron Steam Assist - 9 KG
+KSV36VL30U — ثلاجة رأسية - 348 لتر - اينوكس	KSV36VL30U	MDA | ثلاجات	49999	0	0	قطعة	ثلاجة رأسية - 348 لتر - اينوكس
+GSN33ALEE8 — فريزر رأسي - 238 لتر - ستانلس ستيل	GSN33ALEE8	MDA | ديب فريزر	30999	0	0	قطعة	فريزر رأسي - 238 لتر - ستانلس ستيل
+KDN55NL2E8 — ثلاجة فريزر رأسي - 485 لتر - اينوكس	KDN55NL2E8	MDA | ثلاجات	33999	0	0	قطعة	ثلاجة فريزر رأسي - 485 لتر - اينوكس
+KDN76XI3E9 — ثلاجة فريزر رأسي - 581 لتر - ستانلس ستيل	KDN76XI3E9	MDA | ثلاجات	56999	0	0	قطعة	ثلاجة فريزر رأسي - 581 لتر - ستانلس ستيل
+KDN86AI3E9 — ثلاجة فريزر رأسي - 687 لتر - ستانلس ستيل	KDN86AI3E9	MDA | ثلاجات	66999	0	0	قطعة	ثلاجة فريزر رأسي - 687 لتر - ستانلس ستيل
+KGN39NLEE8 — ثلاجة فريزر سفلي - 330 لتر - اينوكس	KGN39NLEE8	MDA | ثلاجات	24999	0	0	قطعة	ثلاجة فريزر سفلي - 330 لتر - اينوكس
+KGN55CIEE8 — ثلاجة فريزر سفلي - اينوكس	KGN55CIEE8	MDA | ثلاجات	46999	0	0	قطعة	ثلاجة فريزر سفلي - اينوكس
+KGN56CX30U — ثلاجة فريزر سفلي - 559 لتر - اسود	KGN56CX30U	MDA | ثلاجات	51999	0	0	قطعة	ثلاجة فريزر سفلي - 559 لتر - اسود
+KGN56LB3E9 — ثلاجة فريزر سفلي - 559 لتر - زجاج اسود	KGN56LB3E9	MDA | ثلاجات	55999	0	0	قطعة	ثلاجة فريزر سفلي - 559 لتر - زجاج اسود
+KGN76CI3E8 — ثلاجة فريزر سفلي - 578 لتر - اينوكس	KGN76CI3E8	MDA | ثلاجات	58999	0	0	قطعة	ثلاجة فريزر سفلي - 578 لتر - اينوكس
+KGN76CXEE8 — ثلاجة فريزر سفلي - 578 لتر - اسود	KGN76CXEE8	MDA | ثلاجات	60999	0	0	قطعة	ثلاجة فريزر سفلي - 578 لتر - اسود
+KGN86CI3E8 — ثلاجة فريزر سفلي - 682 لتر - اينوكس	KGN86CI3E8	MDA | ثلاجات	69999	0	0	قطعة	ثلاجة فريزر سفلي - 682 لتر - اينوكس
+KGP86FICE8 — ثلاجة فريزر سفلي - 624 لتر - اينوكس	KGP86FICE8	MDA | ثلاجات	74999	0	0	قطعة	ثلاجة فريزر سفلي - 624 لتر - اينوكس
+KIR81AF30U — Built-in Fridge - Series 6, 177.5 x 56 cm, flat hinge	KIR81AF30U	MDA | ثلاجات	48999	0	0	قطعة	Built-in Fridge - Series 6, 177.5 x 56 cm, flat hinge
+KIN86AF3M8 — ثلاجة بيلت إن فريزر سفلي - 273 لتر	KIN86AF3M8	MDA | ثلاجات	67999	0	0	قطعة	ثلاجة بيلت إن فريزر سفلي - 273 لتر
+BGL41WFAMP — Series 4, Bagged vacuum cleaner, ProFamily, Blue	BGL41WFAMP	SDA | مكانس	7499	0	0	قطعة	Series 4, Bagged vacuum cleaner, ProFamily, Blue
+BGL38GOLD — مكنسة كهربائية - 2200 واط - اسود	BGL38GOLD	SDA | مكانس	8499	0	0	قطعة	مكنسة كهربائية - 2200 واط - اسود
+BGL38WHYG — مكنسة كهربائية - 2200 واط - ابيض	BGL38WHYG	SDA | مكانس	7999	0	0	قطعة	مكنسة كهربائية - 2200 واط - ابيض
+BGS412000 — مكنسة كهربائية - 2000 واط - ازرق	BGS412000	SDA | مكانس	8499	0	0	قطعة	مكنسة كهربائية - 2000 واط - ازرق
+BGS21WHYG — مكنسة كهربائية - 2000 واط - ابيض	BGS21WHYG	SDA | مكانس	9499	0	0	قطعة	مكنسة كهربائية - 2000 واط - ابيض
+BGS21WPOW — مكنسة كهربائية - 2000 واط -اسود	BGS21WPOW	SDA | مكانس	9999	0	0	قطعة	مكنسة كهربائية - 2000 واط -اسود
+BGS412234 — مكنسة كهربائية - 2200 واط - اسود	BGS412234	SDA | مكانس	10999	0	0	قطعة	مكنسة كهربائية - 2200 واط - اسود
+BWD420HYG — مكنسة كهربائية جافة وبالماء ، 2100 واط - HEPA فلتر	BWD420HYG	SDA | مكانس	12999	0	0	قطعة	مكنسة كهربائية جافة وبالماء ، 2100 واط - HEPA فلتر
+BWD421PRO — مكنسة كهربائية جافة وبالماء ، 2100 واط - HEPA فلتر	BWD421PRO	SDA | مكانس	13999	0	0	قطعة	مكنسة كهربائية جافة وبالماء ، 2100 واط - HEPA فلتر
+BCS711XXL — مكنسة كهربائية لاسلكية	BCS711XXL	SDA | مكانس	18999	0	0	قطعة	مكنسة كهربائية لاسلكية
+TPE40307 — Series 4, Fully automatic coffee machine, VeroCafe, Inox silver metallic, Piano black	TPE40307	SDA | مشروبات	40999	0	0	قطعة	Series 4, Fully automatic coffee machine, VeroCafe, Inox silver metallic, Piano black
+TIS65621RW — Full Digital automatic coffee machine with milk container Vero Barista 600, Silver	TIS65621RW	SDA | مشروبات	49999	0	0	قطعة	Full Digital automatic coffee machine with milk container Vero Barista 600, Silver
+TQE80703 — Series 8, Fully automatic coffee machine, VeroCafe, Stainless steel	TQE80703	SDA | مشروبات	59999	0	0	قطعة	Series 8, Fully automatic coffee machine, VeroCafe, Stainless steel
+CTL7181B0 — Series 8, Built-In Fully Automatic Coffee Machine, Black	CTL7181B0	SDA | مشروبات	139999	0	0	قطعة	Series 8, Built-In Fully Automatic Coffee Machine, Black
+MAF671B0 — Series 6, Air Fryer	MAF671B0	SDA | تحضير الطعام	6999	0	0	قطعة	Series 6, Air Fryer
+MUM58258 — Series 4, Kitchen machine, MUM 5, 1000 W, White, Silver	MUM58258	SDA | تحضير الطعام	13999	0	0	قطعة	Series 4, Kitchen machine, MUM 5, 1000 W, White, Silver
+MCM3PM386 — محضر طعام - 900 واط - MultiTalent 3 Plus - اسود	MCM3PM386	SDA | تحضير الطعام	8499	0	0	قطعة	محضر طعام - 900 واط - MultiTalent 3 Plus - اسود
+MC812M844 — محضر طعام - 1250 واط - MultiTalent 8 - اسود	MC812M844	SDA | تحضير الطعام	10999	0	0	قطعة	محضر طعام - 1250 واط - MultiTalent 8 - اسود
+MSM64110 — خلاط يدوي - 450 واط - احمر	MSM64110	SDA | تحضير الطعام	1949	0	0	قطعة	خلاط يدوي - 450 واط - احمر
+MSM2650B — Hand blender, CleverMixx, 600 W, Black	MSM2650B	SDA | تحضير الطعام	2999	0	0	قطعة	Hand blender, CleverMixx, 600 W, Black
+MSM4W420 — خلاط يدوي - 800 واط - أبيض	MSM4W420	SDA | تحضير الطعام	3999	0	0	قطعة	خلاط يدوي - 800 واط - أبيض
+MSM6M831 — Series 6, Hand blender, ErgoMaster, 1200 W, Stainless steel	MSM6M831	SDA | تحضير الطعام	7999	0	0	قطعة	Series 6, Hand blender, ErgoMaster, 1200 W, Stainless steel
+TCG3323 — شواية كهربائية - اسود - 2000 واط	TCG3323	SDA | تحضير الطعام	4899	0	0	قطعة	شواية كهربائية - اسود - 2000 واط
+TCG4104 — شواية كهربائية - احمر - 2000 واط	TCG4104	SDA | تحضير الطعام	5499	0	0	قطعة	شواية كهربائية - احمر - 2000 واط
+TCG4215 — شواية كهربائية مع اثنين ترموستات و طبق كاسيرول - فضي - 2000 واط	TCG4215	SDA | تحضير الطعام	6199	0	0	قطعة	شواية كهربائية مع اثنين ترموستات و طبق كاسيرول - فضي - 2000 واط
+MMB6172B — خلاط - 1200 واط - اسود	MMB6172B	SDA | تحضير الطعام	6399	0	0	قطعة	خلاط - 1200 واط - اسود
+TWK4M223 — Kettle, MyMoment, Black	TWK4M223	SDA | تحضير الطعام	3999	0	0	قطعة	Kettle, MyMoment, Black
+TAT4M223 — Compact toaster, MyMoment, Black	TAT4M223	SDA | تحضير الطعام	2999	0	0	قطعة	Compact toaster, MyMoment, Black
+B1ZD100011 — Compact toaster (TAT4M223) + Kettle (TWK4M223) Black	B1ZD100011	SDA | تحضير الطعام	5799	0	0	قطعة	Compact toaster (TAT4M223) + Kettle (TWK4M223) Black
+HGV1F8Y52S — Freestanding Cooker - Series 2, Gas range cooker, Stainless steel - 90 cm	HGV1F8Y52S	بوتاجازات | Traditional	17999	0	0	قطعة	Freestanding Cooker - Series 2, Gas range cooker, Stainless steel - 90 cm
+PGP6B5K60Q — Gas Hob - Series 4, Gas hob, Stainless steel - 60 cm	PGP6B5K60Q	MDA | بيلت إن | مسطح | Traditional	15999	0	0	قطعة	Gas Hob - Series 4, Gas hob, Stainless steel - 60 cm
+HBF011BR0T — Electric Oven - Series 2, Electric Oven, Stainless Steel - 60 cm	HBF011BR0T	MDA | بيلت إن | فرن | Traditional	19999	0	0	قطعة	Electric Oven - Series 2, Electric Oven, Stainless Steel - 60 cm
+WLZ2421SEG — Frontloader - Series 2, Silver Inox - 8 KG	WLZ2421SEG	MDA | غسالات ملابس | Traditional	21999	0	0	قطعة	Frontloader - Series 2, Silver Inox - 8 KG
+KDN43NL2E8 — ثلاجة فريزر رأسي - 365 لتر - اينوكس	KDN43NL2E8	MDA | ثلاجات | Traditional	24999	0	0	قطعة	ثلاجة فريزر رأسي - 365 لتر - اينوكس
+KDN47NLEE8 — ثلاجة فريزر رأسي - 413 لتر - اينوكس	KDN47NLEE8	MDA | ثلاجات | Traditional	28999	0	0	قطعة	ثلاجة فريزر رأسي - 413 لتر - اينوكس
+BWD41700 — Wet & Dry Vacuum Cleaner - Series 4, Wet & dry vacuum cleaner	BWD41700	SDA | مكانس | Traditional	9999	0	0	قطعة	Wet & Dry Vacuum Cleaner - Series 4, Wet & dry vacuum cleaner
+BGS412234A — Bagless Vacuum Cleaner - Series 6, 2200W, HEPA hygienic filter, Red	BGS412234A	SDA | مكانس | Traditional	7499	0	0	قطعة	Bagless Vacuum Cleaner - Series 6, 2200W, HEPA hygienic filter, Red
+MAF462B0 — Air Fryer - Series 4, Air Fryer, Black	MAF462B0	SDA | تحضير الطعام | Traditional	5999	0	0	قطعة	Air Fryer - Series 4, Air Fryer, Black
+MSM2620B — Hand Blender - Hand blender, CleverMixx, 600 W, Black, anthracite	MSM2620B	SDA | تحضير الطعام | Traditional	2699	0	0	قطعة	Hand Blender - Hand blender, CleverMixx, 600 W, Black, anthracite
+MMR08R2 — Chopper - Chopper, 400 W, Red, grey	MMR08R2	SDA | تحضير الطعام | Traditional	1399	0	0	قطعة	Chopper - Chopper, 400 W, Red, grey
+MCM3201B — Food Processor - MultiTalent 3, 800 W, Black, Black	MCM3201B	SDA | تحضير الطعام | Traditional	6299	0	0	قطعة	Food Processor - MultiTalent 3, 800 W, Black, Black

@@ -776,8 +776,11 @@ function copyOrderForWhatsapp(orderId) {
     const hasOffer = i.listPriceAtSale && i.listPriceAtSale > i.unitPrice;
     const full = clean(i.product?.name || '');
     const sepAt = full.indexOf(' — ');
-    const code = i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : '');
-    const desc = sepAt > -1 ? full.slice(sepAt + 3) : full;
+    const code = clean(i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : ''));
+    // الوصف: من الاسم بعد " — "، وإلا من حقل الوصف. ومش بيتكرر الكود أبداً لو مفيش وصف حقيقي
+    let desc = sepAt > -1 ? full.slice(sepAt + 3) : clean(i.product?.description || '');
+    if (!desc || desc.toLowerCase() === code.toLowerCase()) desc = clean(i.product?.description || '');
+    if (desc.toLowerCase() === code.toLowerCase()) desc = '';
     rows.push([
       idx + 1, text(code), text(desc), i.qty,
       num(hasOffer ? i.listPriceAtSale : i.unitPrice),
