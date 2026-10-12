@@ -673,9 +673,8 @@ function renderOrdersTable() {
         <td style="text-align:center;"><input type="checkbox" data-email-sent="${o.id}" ${o.sentByEmail ? 'checked' : ''} title="تم الإرسال بالإيميل"></td>
         <td>${o.total.toLocaleString()}${o.discountRate > 0 ? ` <span class="muted">(خصم ${o.discountRate}%)</span>` : ''}</td>
         <td class="row-actions">
-          <button class="secondary" data-wa="${o.id}">نسخ واتساب</button>
+          <button class="secondary" data-wa="${o.id}" title="يتلصق في إكسيل والمعادلات شغالة، الصقه في A1">نسخ واتساب / إكسيل</button>
           <button class="secondary" data-sap="${o.id}">نسخ للساب</button>
-          <button class="secondary" data-xls="${o.id}">Excel</button>
           <button class="danger" data-void="${o.id}">إلغاء الطلبية</button>
         </td>
       </tr>`;
@@ -705,7 +704,6 @@ function renderOrdersTable() {
   }));
   tbody.querySelectorAll('[data-wa]').forEach(btn => btn.addEventListener('click', () => copyOrderForWhatsapp(btn.dataset.wa)));
   tbody.querySelectorAll('[data-sap]').forEach(btn => btn.addEventListener('click', () => copyOrderForSap(btn.dataset.sap)));
-  tbody.querySelectorAll('[data-xls]').forEach(btn => btn.addEventListener('click', () => exportOrderExcel(btn.dataset.xls)));
   tbody.querySelectorAll('[data-save-num]').forEach(btn => btn.addEventListener('click', () => {
     const id = btn.dataset.saveNum;
     const input = tbody.querySelector(`.ord-number-input[data-id="${id}"]`);
@@ -758,62 +756,48 @@ async function copyToClipboard(text) {
   }
 }
 
+// نسخ الفاتورة بصيغة تنفع للصق في إكسيل (فواصل Tab) والمعادلات شغالة.
+// الصق في الخلية A1 في شيت فاضي: المراجع (B4, F6...) مبنية على كده.
 function copyOrderForWhatsapp(orderId) {
   const { order, customer, items } = getOrderDetails(orderId);
-  const lines = [`*فاتورة ${customer?.name || ''}*`];
-  if (customer?.code) lines.push(`كود العميل: ${customer.code}`);
-  if (order.invoiceNo) lines.push(`رقم الفاتورة: #${order.invoiceNo}`);
-  lines.push(`التاريخ: ${new Date(order.date).toLocaleDateString('ar-EG')}`);
-  lines.push('—————————');
-  lines.push('*الأصناف:*');
-  lines.push('');
+  const clean = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+  const text = (v) => { const s = clean(v); return /^[=+\-@]/.test(s) ? `'${s}` : s; };
+  const num = (v) => String(Math.round((Number(v) || 0) * 100) / 100);
+  const rows = [
+    ['رقم الفاتورة', text(order.invoiceNo || '')],
+    ['اسم العميل', text(customer?.name || '')],
+    ['كود العميل', text(customer?.code || '')],
+    ['نسبة الخصم', `${Number(order.discountRate) || 0}%`],
+    ['المسلسل', 'كود الصنف', 'وصف الصنف', 'العدد', 'سعر اللسته', 'السعر بعد الخصم', 'سعر العرض إن وجد', 'السعر بعد الخصم من سعر العرض', 'الإجمالي'],
+  ];
+  const first = rows.length + 1; // أول صف أصناف (بيبدأ من 6)
   items.forEach((i, idx) => {
+    const r = first + idx;
     const hasOffer = i.listPriceAtSale && i.listPriceAtSale > i.unitPrice;
-    lines.push(`${idx + 1}. ${i.product?.name || '?'}`);
-    if (i.product?.sku) lines.push(`الكود: ${i.product.sku}`);
-    lines.push(`الكمية: ${i.qty}`);
-    lines.push(`السعر: ${i.unitPrice.toLocaleString()} ج.م${hasOffer ? ` (كان ${i.listPriceAtSale.toLocaleString()})` : ''}`);
-    lines.push(`الإجمالي: ${i.lineTotal.toLocaleString()} ج.م`);
-    lines.push('');
+    const full = clean(i.product?.name || '');
+    const sepAt = full.indexOf(' — ');
+    const code = i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : '');
+    const desc = sepAt > -1 ? full.slice(sepAt + 3) : full;
+    rows.push([
+      idx + 1, text(code), text(desc), i.qty,
+      num(hasOffer ? i.listPriceAtSale : i.unitPrice),
+      `=E${r}*(1-$B$4)`,
+      hasOffer ? num(i.unitPrice) : '',
+      hasOffer ? `=G${r}*(1-$B$4)` : '',
+      hasOffer ? `=D${r}*H${r}` : `=D${r}*F${r}`,
+    ]);
   });
-  lines.push('—————————');
-  lines.push(`الإجمالي: ${order.subtotal.toLocaleString()} ج.م`);
-  if (order.discountAmount > 0) lines.push(`خصم ${order.discountRate}%: -${order.discountAmount.toLocaleString()} ج.م`);
-  lines.push(`*الصافي: ${order.total.toLocaleString()} ج.م*`);
-  copyToClipboard(lines.join('\n'));
+  if (items.length) {
+    const last = first + items.length - 1;
+    rows.push(['', '', '', '', '', '', '', 'الإجمالي', `=SUM(I${first}:I${last})`]);
+  }
+  copyToClipboard(rows.map(r => r.join('\t')).join('\n'));
 }
 
 function copyOrderForSap(orderId) {
   const { items } = getOrderDetails(orderId);
   const lines = items.map(i => [i.product?.sku || i.product?.name || '', i.qty, 'eg01'].join('\t'));
   copyToClipboard(lines.join('\n'));
-}
-
-function exportOrderExcel(orderId) {
-  const { order, customer, items } = getOrderDetails(orderId);
-  const rows = [
-    ['رقم الفاتورة', `#${order.invoiceNo || '-'}`],
-    [],
-    ['المنتج', 'الكود', 'الكمية', 'السعر قبل العرض', 'السعر بعد العرض', 'الإجمالي'],
-    ...items.map(i => [
-      i.product?.name || '', i.product?.sku || '', i.qty,
-      i.listPriceAtSale && i.listPriceAtSale > i.unitPrice ? i.listPriceAtSale : '-',
-      i.unitPrice, i.lineTotal,
-    ]),
-    [],
-    ['', '', '', '', 'الإجمالي قبل الخصم', order.subtotal],
-  ];
-  if (order.discountAmount > 0) rows.push(['', '', '', '', `خصم ${order.discountRate}%`, -order.discountAmount]);
-  rows.push(['', '', '', '', 'الصافي', order.total]);
-
-  const csv = '\uFEFF' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `فاتورة-${customer?.name || 'عميل'}-${new Date(order.date).toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 document.getElementById('btnImportHistorical').addEventListener('click', () => {
