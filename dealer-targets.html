@@ -402,7 +402,10 @@ function exportDealerReport() {
   const net = $('rep_net').checked;
   const vat = Math.max(Number($('rep_vat').value) || 0, 0);
   const div = net ? 1 + vat / 100 : 1;
-  const v = (n) => Math.round(((Number(n) || 0) / div) * 100) / 100; // كل القيم (التارجت والمحقق) بتتقسم بنفس الرقم، فالنسب ما بتتغيرش
+  const rd = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const vt = (n) => rd(n);            // التارجت (Slabs): زي ما هو، مفيش ضريبة بتتشال منه
+  const va = (n) => rd((Number(n) || 0) / div); // المحقق والمسحوبات: بتتشال منها الضريبة لو الخيار مفعّل
+  const pc = (a, b) => (b > 0 ? rd((a / b) * 100) : null);
   const p = getDealerTargetProgress(state.customerId, state.year);
   const t = p.target;
   const customer = getAll(STORAGE_KEYS.CUSTOMERS).find((c) => c.id === state.customerId) || {};
@@ -412,7 +415,18 @@ function exportDealerReport() {
   const d10 = (d) => String(d || '').slice(0, 10);
   const lines = getDeliveredLines().filter((l) => l.customerId === state.customerId && inYear(l.date)).sort((a, b) => new Date(a.date) - new Date(b.date));
   const rets = getDeliveredReturns().filter((l) => l.customerId === state.customerId && inYear(l.date)).sort((a, b) => new Date(a.date) - new Date(b.date));
-  const basis = net ? `بدون ضريبة (القيم ÷ ${1 + vat / 100})` : 'شامل الضريبة (زي الفاتورة بعد خصم التاجر)';
+  const basis = net ? `المحقق والمسحوبات بدون ضريبة (÷ ${1 + vat / 100})، وأرقام الـ Slabs زي ما هي، والبوتاجاز بالقطع` : 'شامل الضريبة (زي الفاتورة بعد خصم التاجر)';
+  const achNet = va(p.achieved.total);
+  const slabInfo = p.slabs.map((sl) => {
+    const ok = sl.annual > 0;
+    const remaining = ok ? rd(Math.max(sl.annual - achNet, 0)) : 0;
+    return { ...sl, ok, reachedN: ok && achNet >= sl.annual, remainingN: remaining, pctA: ok ? pc(achNet, sl.annual) : null, pctY: sl.ytdTarget > 0 ? pc(achNet, sl.ytdTarget) : null,
+      reqN: ok && p.monthsLeft > 0 ? rd(remaining / p.monthsLeft) : null };
+  });
+  const reachedN = slabInfo.filter((x) => x.reachedN).length;
+  const pinnedI = p.focus.pinned ? p.focus.index : null;
+  const autoI = slabInfo.findIndex((x) => x.ok && !x.reachedN);
+  const focusI = pinnedI !== null ? pinnedI : (autoI >= 0 ? autoI : null);
 
   const R = [];
   R.push(['تقرير تارجت التاجر', customer.name || '']);
@@ -422,16 +436,16 @@ function exportDealerReport() {
   R.push(['تاريخ التقرير', new Date().toISOString().slice(0, 10)]);
   R.push([]);
   R.push(['الملخص']);
-  R.push(['المحقق من يناير (مسحوباته المسلَّمة صافي المرتجعات)', v(p.achieved.total)]);
-  R.push(['وصل لـ', p.reachedCount ? DEALER_SLAB_NAMES[p.reachedCount - 1] : 'لسه تحت Slab 1']);
-  R.push(['شغال على', p.focus.slab ? p.focus.slab.name + (p.focus.pinned ? ' (مثبّت)' : ' (تلقائي)') : '-']);
-  R.push(['متوسط شهري فعلي', v(p.runRate)]);
+  R.push(['المحقق من يناير (مسحوباته المسلَّمة صافي المرتجعات)', achNet]);
+  R.push(['وصل لـ', reachedN ? DEALER_SLAB_NAMES[reachedN - 1] : 'لسه تحت Slab 1']);
+  R.push(['شغال على', focusI !== null ? DEALER_SLAB_NAMES[focusI] + (pinnedI !== null ? ' (مثبّت)' : ' (تلقائي)') : '-']);
+  R.push(['متوسط شهري فعلي', va(p.runRate)]);
   R.push([]);
   R.push(['الـ Slabs']);
   R.push(['Slab', 'السنوي', 'المطلوب لحد الشهر الحالي', 'المحقق', '% من السنوي', '% من المطلوب لحد دلوقتي', 'الباقي', 'مطلوب شهرياً', 'الحالة']);
-  p.slabs.forEach((s) => {
-    if (!(s.annual > 0)) { R.push([s.name, '-', '-', v(p.achieved.total), '-', '-', '-', '-', 'مفيش رقم']); return; }
-    R.push([s.name, v(s.annual), v(s.ytdTarget), v(p.achieved.total), pct(s.pctAnnual), pct(s.pctYtd), v(s.remaining), s.requiredPerMonth === null ? '-' : v(s.requiredPerMonth), s.reached ? 'اتحقق' : 'لسه']);
+  slabInfo.forEach((s) => {
+    if (!s.ok) { R.push([s.name, '-', '-', achNet, '-', '-', '-', '-', 'مفيش رقم']); return; }
+    R.push([s.name, vt(s.annual), vt(s.ytdTarget), achNet, pct(s.pctA), pct(s.pctY), s.remainingN, s.reqN === null ? '-' : s.reqN, s.reachedN ? 'اتحقق' : 'لسه']);
   });
   R.push([]);
   R.push(['التفصيل الشهري']);
@@ -439,8 +453,8 @@ function exportDealerReport() {
   for (let i = 0; i < 12; i++) {
     const cum1 = t.monthly[0].slice(0, i + 1).reduce((a, b) => a + b, 0);
     const future = i + 1 > p.curMonth;
-    R.push([MONTHS[i], v(t.monthly[0][i]), v(t.monthly[1][i]), v(t.monthly[2][i]),
-      future ? '' : v(p.achieved.monthly[i]), future ? '' : v(p.cumAchieved[i]), v(cum1), future || !cum1 ? '' : v(p.cumAchieved[i] - cum1)]);
+    R.push([MONTHS[i], vt(t.monthly[0][i]), vt(t.monthly[1][i]), vt(t.monthly[2][i]),
+      future ? '' : va(p.achieved.monthly[i]), future ? '' : va(p.cumAchieved[i]), vt(cum1), future || !cum1 ? '' : rd(va(p.cumAchieved[i]) - cum1)]);
   }
   R.push([]);
   if (p.cookers.annual > 0 || p.cookers.achieved > 0) {
@@ -455,15 +469,15 @@ function exportDealerReport() {
   let totQ = 0, totV = 0;
   lines.forEach((l) => {
     const o = oMap.get(l.orderId) || {}, pr = pMap.get(l.productId) || {};
-    R.push([d10(l.date), o.invoiceNo || '', o.orderNumber || '', pr.sku || '', l.productName, l.qty, v(l.value)]);
+    R.push([d10(l.date), o.invoiceNo || '', o.orderNumber || '', pr.sku || '', l.productName, l.qty, va(l.value)]);
     totQ += l.qty; totV += l.value;
   });
   rets.forEach((l) => {
     const o = oMap.get(l.orderId) || {}, pr = pMap.get(l.productId) || {};
-    R.push([d10(l.date), o.invoiceNo || '', o.orderNumber || '', pr.sku || '', 'مرتجع: ' + (pr.name || ''), -l.qty, -v(l.value)]);
+    R.push([d10(l.date), o.invoiceNo || '', o.orderNumber || '', pr.sku || '', 'مرتجع: ' + (pr.name || ''), -l.qty, -va(l.value)]);
     totQ -= l.qty; totV -= l.value;
   });
-  R.push(['الإجمالي', '', '', '', '', totQ, v(totV)]);
+  R.push(['الإجمالي', '', '', '', '', totQ, va(totV)]);
   if (!lines.length) R.push(['مفيش مسحوبات مسلَّمة للتاجر في السنة دي']);
 
   const csv = '\uFEFF' + R.map((r) => r.map(csvCell).join(',')).join('\n');
