@@ -101,6 +101,9 @@
     <h2>تاجر معيّن</h2>
     <div class="filters">
       <select id="f_customer" style="min-width:220px;"></select>
+      <label class="muted" style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="rep_net"> بدون الضريبة (÷</label>
+      <input type="number" id="rep_vat" value="14" min="0" max="100" step="0.5" style="width:70px;"><span class="muted">%)</span>
+      <button type="button" id="btnReport">⬇ تقرير التاجر (Excel)</button>
     </div>
   </div>
   <div id="progressBox"></div>
@@ -162,6 +165,7 @@ import {
   esc, initStorage, getAll, STORAGE_KEYS,
   DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, setDealerFocus, deleteDealerTarget,
   getDealerTargetProgress, getDealerTargetsOverview, getDealerNotCounted, getStatusMismatchOrders,
+  getDeliveredLines, getDeliveredReturns, getReportOrders,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -390,6 +394,86 @@ $('f_year').addEventListener('change', (e) => { state.year = Number(e.target.val
 $('f_customer').addEventListener('change', (e) => { state.customerId = e.target.value; renderAll(); });
 
 function renderAll() { renderOverview(); renderProgress(); wireFocusButtons(); loadEditor(); }
+
+// ---------- تقرير Excel للتاجر ----------
+const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+function exportDealerReport() {
+  if (!state.customerId) { alert('اختار تاجر الأول'); return; }
+  const net = $('rep_net').checked;
+  const vat = Math.max(Number($('rep_vat').value) || 0, 0);
+  const div = net ? 1 + vat / 100 : 1;
+  const v = (n) => Math.round(((Number(n) || 0) / div) * 100) / 100; // كل القيم (التارجت والمحقق) بتتقسم بنفس الرقم، فالنسب ما بتتغيرش
+  const p = getDealerTargetProgress(state.customerId, state.year);
+  const t = p.target;
+  const customer = getAll(STORAGE_KEYS.CUSTOMERS).find((c) => c.id === state.customerId) || {};
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((x) => [x.id, x]));
+  const oMap = new Map(getReportOrders().map((o) => [o.id, o]));
+  const inYear = (d) => new Date(d).getFullYear() === state.year;
+  const d10 = (d) => String(d || '').slice(0, 10);
+  const lines = getDeliveredLines().filter((l) => l.customerId === state.customerId && inYear(l.date)).sort((a, b) => new Date(a.date) - new Date(b.date));
+  const rets = getDeliveredReturns().filter((l) => l.customerId === state.customerId && inYear(l.date)).sort((a, b) => new Date(a.date) - new Date(b.date));
+  const basis = net ? `بدون ضريبة (القيم ÷ ${1 + vat / 100})` : 'شامل الضريبة (زي الفاتورة بعد خصم التاجر)';
+
+  const R = [];
+  R.push(['تقرير تارجت التاجر', customer.name || '']);
+  R.push(['كود التاجر', customer.code || '']);
+  R.push(['السنة', state.year]);
+  R.push(['أساس القيم', basis]);
+  R.push(['تاريخ التقرير', new Date().toISOString().slice(0, 10)]);
+  R.push([]);
+  R.push(['الملخص']);
+  R.push(['المحقق من يناير (مسحوباته المسلَّمة صافي المرتجعات)', v(p.achieved.total)]);
+  R.push(['وصل لـ', p.reachedCount ? DEALER_SLAB_NAMES[p.reachedCount - 1] : 'لسه تحت Slab 1']);
+  R.push(['شغال على', p.focus.slab ? p.focus.slab.name + (p.focus.pinned ? ' (مثبّت)' : ' (تلقائي)') : '-']);
+  R.push(['متوسط شهري فعلي', v(p.runRate)]);
+  R.push([]);
+  R.push(['الـ Slabs']);
+  R.push(['Slab', 'السنوي', 'المطلوب لحد الشهر الحالي', 'المحقق', '% من السنوي', '% من المطلوب لحد دلوقتي', 'الباقي', 'مطلوب شهرياً', 'الحالة']);
+  p.slabs.forEach((s) => {
+    if (!(s.annual > 0)) { R.push([s.name, '-', '-', v(p.achieved.total), '-', '-', '-', '-', 'مفيش رقم']); return; }
+    R.push([s.name, v(s.annual), v(s.ytdTarget), v(p.achieved.total), pct(s.pctAnnual), pct(s.pctYtd), v(s.remaining), s.requiredPerMonth === null ? '-' : v(s.requiredPerMonth), s.reached ? 'اتحقق' : 'لسه']);
+  });
+  R.push([]);
+  R.push(['التفصيل الشهري']);
+  R.push(['الشهر', 'Slab 1', 'Slab 2', 'Slab 3', 'المحقق', 'تراكمي المحقق', 'تراكمي Slab 1', 'الفرق عن تراكمي Slab 1']);
+  for (let i = 0; i < 12; i++) {
+    const cum1 = t.monthly[0].slice(0, i + 1).reduce((a, b) => a + b, 0);
+    const future = i + 1 > p.curMonth;
+    R.push([MONTHS[i], v(t.monthly[0][i]), v(t.monthly[1][i]), v(t.monthly[2][i]),
+      future ? '' : v(p.achieved.monthly[i]), future ? '' : v(p.cumAchieved[i]), v(cum1), future || !cum1 ? '' : v(p.cumAchieved[i] - cum1)]);
+  }
+  R.push([]);
+  if (p.cookers.annual > 0 || p.cookers.achieved > 0) {
+    R.push(['البوتاجاز (قطع)']);
+    R.push(['الربع', 'التارجت', 'المحقق', 'الباقي']);
+    p.cookers.quarters.forEach((q) => R.push([`Q${q.q}`, q.target, q.achieved, q.remaining]));
+    R.push(['السنوي', p.cookers.annual, p.cookers.achieved, p.cookers.remaining]);
+    R.push([]);
+  }
+  R.push(['مسحوبات التاجر (أصناف Delivered بتاريخ التسليم)']);
+  R.push(['تاريخ التسليم', 'رقم الفاتورة', 'رقم الطلبية', 'الكود', 'الصنف', 'الكمية', 'القيمة']);
+  let totQ = 0, totV = 0;
+  lines.forEach((l) => {
+    const o = oMap.get(l.orderId) || {}, pr = pMap.get(l.productId) || {};
+    R.push([d10(l.date), o.invoiceNo || '', o.orderNumber || '', pr.sku || '', l.productName, l.qty, v(l.value)]);
+    totQ += l.qty; totV += l.value;
+  });
+  rets.forEach((l) => {
+    const o = oMap.get(l.orderId) || {}, pr = pMap.get(l.productId) || {};
+    R.push([d10(l.date), o.invoiceNo || '', o.orderNumber || '', pr.sku || '', 'مرتجع: ' + (pr.name || ''), -l.qty, -v(l.value)]);
+    totQ -= l.qty; totV -= l.value;
+  });
+  R.push(['الإجمالي', '', '', '', '', totQ, v(totV)]);
+  if (!lines.length) R.push(['مفيش مسحوبات مسلَّمة للتاجر في السنة دي']);
+
+  const csv = '\uFEFF' + R.map((r) => r.map(csvCell).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  a.download = `تقرير-تارجت-${customer.name || 'تاجر'}-${state.year}${net ? '-بدون-ضريبة' : ''}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+$('btnReport').addEventListener('click', exportDealerReport);
 
 initFilters();
 renderAll();

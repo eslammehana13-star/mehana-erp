@@ -889,9 +889,12 @@ function updateOrderItemStatus(orderId, itemIndex, status, deliveredAt = null) {
  * تجديد الحجز فوراً.
  */
 function updateOrderNumber(orderId, orderNumber) {
+  const now = new Date().toISOString();
+  const o = getAll(STORAGE_KEYS.SALES_ORDERS).find((x) => x.id === orderId);
   return updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, {
     orderNumber,
-    orderNumberUpdatedAt: new Date().toISOString(),
+    orderNumberUpdatedAt: now,
+    ...(o && o.deferred ? { deferred: false, bookedAt: now } : {}), // كتابة رقم الطلبية على مؤجَّلة = اتحجزت كلها
   });
 }
 
@@ -905,7 +908,7 @@ function getRenewalDaysLeft(order) {
 /** الطلبيات الشغالة (مش مؤرشفة ومش ملغاة) اللي محتاجة تجديد حجز خلال يوم أو فاتها المعاد */
 function getOrdersNeedingRenewal() {
   return getActiveOrders()
-    .filter((o) => !['delivered', 'release'].includes(o.status))
+        .filter((o) => !o.deferred && !['delivered', 'release'].includes(o.status))
     .map((o) => ({ ...o, daysLeft: getRenewalDaysLeft(o) }))
     .filter((o) => o.daysLeft <= 1)
     .sort((a, b) => a.daysLeft - b.daysLeft);
@@ -1606,7 +1609,7 @@ function getDeliveredLines() {
       lines.push({
         orderId: o.id, customerId: o.customerId, repId: o.repId || null, productId: it.productId,
         productName: p ? p.name : '(منتج محذوف)', category: p ? p.category : '',
-        qty: it.qty, value: it.qty * it.unitPrice * factor, date: it.deliveredAt || o.deliveredAt || o.date,
+        qty: it.qty, value: it.qty * it.unitPrice * factor, date: it.deliveredAt || o.deliveredAt || o.date, historical: !!o.historicalImport,
       });
     });
   });
@@ -1635,7 +1638,9 @@ function getDeliveredReturns() {
 
 /** تفاصيل رقم كل KPI: مين العملاء والمنتجات اللي كوّنوه (للمراجعة ومقارنة الأرقام) */
 function getKpiDetails(kpiId) {
-  const kpi = getAll(STORAGE_KEYS.KPIS).find((k) => k.id === kpiId);
+  return getKpiDetailsFor(getAll(STORAGE_KEYS.KPIS).find((k) => k.id === kpiId));
+}
+function getKpiDetailsFor(kpi) {
   if (!kpi || kpi.metricType === 'manual_percent') return null;
   if (kpi.metricType === 'white_space_dealers') return { kind: 'whitespace', rows: getWhiteSpaceDetail(kpi) };
   const customers = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c.name]));
@@ -2322,6 +2327,425 @@ function getDealerTargetsOverview(year, now = new Date()) {
 }
 
 // ------------------------------------------------------------
+// المحقق لأي شهر قديم (من غير ما يكون ليه تارجت محفوظ)
+// ------------------------------------------------------------
+
+/** المحقق لكل KPI في القالب لشهر معيّن، من غير تارجت ولا وزن (للرجوع لأي شهر قديم). OverDue بيتخطى لأنه يدوي */
+function getAchievedOnlyKpis(period, { vatRate = 14 } = {}) {
+  return TARGET_TEMPLATE.filter((t) => t.metricType !== 'manual_percent').map((t) => {
+    const kpi = { id: null, period, name: t.name, metricType: t.metricType, category: t.category || null, weight: 0, targetValue: 0, deductionPercent: 0, minFamilies: 4, manualPercent: null, vatRate: t.metricType === 'category_value' ? (Number(vatRate) || 0) : 0 };
+    return { ...kpi, unit: t.unit, achieved: Math.round(computeKpiAchieved(kpi) * 100) / 100 };
+  });
+}
+
+/** الشهر فيه أصناف مسلَّمة جاية من الأوردرات التاريخية (مفيهاش تاريخ تسليم فعلي، بتتحسب بتاريخ الطلب) = أرقامه تقريبية */
+function isPeriodApproximate(period) {
+  return getDeliveredLines().some((l) => l.historical && inPeriod(l.date, period));
+}
+
+// ------------------------------------------------------------
+// مزامنة يدوية مع تقرير الساب: مقارنة التقرير بالأوردرات اللي عندك، وتطبيق الفروقات اللي تختارها بس
+// الأعمدة: Document Date | Sales Document | Sold-to Party | Material | Material Description | Order Quantity | Net Price | Delivery Status
+// المطابقة برقم Sales Document = رقم الطلبية (orderNumber). مفيش حاجة بتتغيّر في previewSapSync، التغيير كله في applySapSync.
+// ------------------------------------------------------------
+const normCode = (s) => String(s || '').trim().replace(/^0+/, '').toLowerCase();
+function normSapDate(s) {
+  const t = String(s || '').trim(), p2 = (x) => String(x).padStart(2, '0');
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${p2(m[2])}-${p2(m[3])}`;
+  m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/); // يوم/شهر/سنة (صيغة الساب المصرية)
+  return m ? `${m[3]}-${p2(m[2])}-${p2(m[1])}` : '';
+}
+const sapFmt = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US');
+const STATE_TXT = { delivered: 'مسلَّم', partial: 'تسليم جزئي', pending: 'مش مسلَّم' };
+
+function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1 } = {}) {
+  const vatDiv = 1 + (Number(vatRate) || 0) / 100;
+  const tol = Math.max(Number(priceTolerancePct) || 0, 0);
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  const cByCode = new Map(customers.filter((c) => c.code).map((c) => [normCode(c.code), c]));
+  const cById = new Map(customers.map((c) => [c.id, c]));
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
+  const out = { diffs: [], range: { from: null, to: null }, badRows: 0, counts: { sapDocs: 0, matchedClean: 0, withDiffs: 0 } };
+  let seq = 0;
+  const push = (d) => { out.diffs.push({ id: `d${++seq}`, canApply: true, note: '', localText: '—', sapText: '—', ...d }); };
+
+  // 1) قراءة تقرير الساب وتجميعه في أوردرات
+  const docs = new Map();
+  parseRows(text).forEach(([dateStr, doc, custCode, material, desc, qty, net, status]) => {
+    const d = normSapDate(dateStr);
+    const docN = String(doc || '').trim();
+    if (!docN || !d || !String(material || '').trim()) { if (docN && docN.toLowerCase() !== 'sales document') out.badRows++; return; }
+    const st = String(status || '').trim().toLowerCase();
+    if (st === 'not relevant') return;
+    const state = st === 'completed' ? 'delivered' : st === 'partially delivered' ? 'partial' : 'pending';
+    const k = docN.toLowerCase();
+    if (!docs.has(k)) docs.set(k, { doc: docN, date: d, custCode: String(custCode || '').trim(), lines: [] });
+    docs.get(k).lines.push({ material: String(material).trim(), desc: String(desc || '').trim(), qty: toNum(qty), net: toNum(net), state });
+    if (!out.range.from || d < out.range.from) out.range.from = d;
+    if (!out.range.to || d > out.range.to) out.range.to = d;
+  });
+  out.counts.sapDocs = docs.size;
+  if (!docs.size) return out;
+
+  const aggSap = (lines) => {
+    const m = new Map();
+    lines.forEach((l) => {
+      const k = l.material.toLowerCase();
+      const a = m.get(k) || { key: k, material: l.material, desc: l.desc, qty: 0, value: 0, states: new Set() };
+      a.qty += l.qty; a.value += l.qty * l.net; a.states.add(l.state); m.set(k, a);
+    });
+    m.forEach((a) => { a.net = a.qty ? a.value / a.qty : 0; a.state = a.states.size === 1 ? [...a.states][0] : (a.states.has('delivered') || a.states.has('partial') ? 'partial' : 'pending'); });
+    return m;
+  };
+  const aggLocal = (o) => {
+    const m = new Map(); let dup = false;
+    o.items.forEach((it) => {
+      const p = pMap.get(it.productId);
+      const k = ((p && p.sku) || '').trim().toLowerCase() || `id:${it.productId}`;
+      if (m.has(k)) dup = true;
+      const a = m.get(k) || { key: k, productId: it.productId, product: p, qty: 0, gross: 0, allDelivered: true };
+      a.qty += it.qty; a.gross += it.qty * it.unitPrice; if (it.status !== 'delivered') a.allDelivered = false; m.set(k, a);
+    });
+    const f = 1 - (o.discountRate || 0) / 100;
+    m.forEach((a) => { a.net = a.qty ? (a.gross / a.qty) * f / vatDiv : 0; });
+    return { map: m, dup };
+  };
+
+  // 2) الأوردرات اللي عندك
+  const locals = getReportOrders();
+  const docKeys = new Set(docs.keys());
+  const byNum = new Map();
+  locals.forEach((o) => { const n = String(o.orderNumber || '').trim().toLowerCase(); if (n) { if (!byNum.has(n)) byNum.set(n, []); byNum.get(n).push(o); } });
+  const claimed = new Set();
+  const dayMs = 86400000;
+
+  docs.forEach((sd, key) => {
+    const customer = cByCode.get(normCode(sd.custCode));
+    const cname = customer ? customer.name : `كود ${sd.custCode}`;
+    const sapAgg = aggSap(sd.lines);
+    let local = null, linkedNow = false;
+    const cands = byNum.get(key);
+    if (cands && cands.length) local = cands.find((o) => customer && o.customerId === customer.id) || cands[0];
+    if (!customer && !local) { push({ kind: 'customer_unknown', doc: sd.doc, customerName: cname, canApply: false, label: 'عميل مش مسجل', note: `أوردر ${sd.doc} (${sd.lines.length} صنف) اتخطى لأن كود العميل مش مسجل عندك` }); return; }
+
+    // مفيش أوردر برقمه: دوّر على فاتورة ليك لنفس العميل ونفس الأصناف (يمكن رقمها ناقص أو غلط)
+    if (!local) {
+      const sapKeys = [...sapAgg.keys()].sort().join('|'), t0 = new Date(sd.date).getTime();
+      const pool = locals.filter((o) => !o.historicalImport && !claimed.has(o.id) && o.customerId === customer.id
+        && !docKeys.has(String(o.orderNumber || '').trim().toLowerCase()) && Math.abs(new Date(o.date).getTime() - t0) <= 30 * dayMs
+        && [...aggLocal(o).map.keys()].sort().join('|') === sapKeys)
+        .sort((a, b) => Math.abs(new Date(a.date) - t0) - Math.abs(new Date(b.date) - t0));
+      if (pool.length) { local = pool[0]; linkedNow = true; }
+    }
+
+    if (!local) {
+      const total = sd.lines.reduce((s, l) => s + l.qty * l.net, 0);
+      push({ kind: 'missing_order', doc: sd.doc, customerName: cname, label: 'أوردر في الساب مش عندك', localText: '—', sapText: `${sapAgg.size} صنف — ${sapFmt(total)} ج.م صافي`,
+        note: 'هيتضاف كفاتورة جديدة بسعر الساب ×ضريبة، من غير خصم تاجر (السعر صافي أصلاً)', date: sd.date, customerId: customer.id,
+        lines: [...sapAgg.values()].map((a) => ({ material: a.material, desc: a.desc, qty: a.qty, net: a.net, state: a.state })) });
+      return;
+    }
+    claimed.add(local.id);
+    const before = out.diffs.length;
+    const base = { doc: sd.doc, orderId: local.id, customerName: customer ? customer.name : cname };
+
+    if (linkedNow) push({ ...base, kind: 'link', label: 'ربط برقم الساب', localText: `رقمك: ${local.orderNumber || 'فاضي'}`, sapText: sd.doc, note: 'نفس العميل ونفس الأصناف في تاريخ قريب — غالباً نفس الأوردر', sapDate: sd.date });
+    if (customer && local.customerId !== customer.id) push({ ...base, kind: 'customer', canApply: false, label: 'عميل مختلف', localText: (cById.get(local.customerId) || {}).name || '(محذوف)', sapText: customer.name });
+
+    const { map: lm, dup } = aggLocal(local);
+    const dupNote = dup ? 'الفاتورة فيها نفس الصنف في سطرين — عدّلها يدوي' : '';
+    sapAgg.forEach((s, k) => {
+      const l = lm.get(k);
+      const item = { ...base, key: k, sku: s.material, desc: s.desc || (l && l.product ? l.product.name : '') };
+      if (!l) { push({ ...item, kind: 'item_add', label: 'صنف ناقص عندك', localText: 'مش موجود', sapText: `${sapFmt(s.qty)} × ${sapFmt(s.net)}`, qty: s.qty, net: s.net, state: s.state }); return; }
+      const canApply = !dup, note = dupNote;
+      if (l.qty !== s.qty) push({ ...item, kind: 'qty', label: 'كمية مختلفة', localText: sapFmt(l.qty), sapText: sapFmt(s.qty), productId: l.productId, newQty: s.qty, canApply, note });
+      if (Math.abs(l.net - s.net) > Math.max(0.5, (s.net * tol) / 100)) push({ ...item, kind: 'price', label: 'سعر مختلف', localText: `${sapFmt(l.net)} صافي/وحدة`, sapText: `${sapFmt(s.net)} صافي/وحدة`, productId: l.productId, newNet: s.net, canApply, note });
+      if (s.state === 'delivered' && !l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.pending, sapText: STATE_TXT.delivered, productId: l.productId, newState: 'delivered', canApply, note: note || 'هيتسجّل Delivered بتاريخ التسليم اللي تحدده تحت' });
+      else if (s.state !== 'delivered' && l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.delivered, sapText: STATE_TXT[s.state], productId: l.productId, newState: s.state === 'partial' ? 'release' : 'confirmed', canApply, note: note || '⚠ تطبيقه بيشيل الصنف من التارجت والمحقق' });
+    });
+    lm.forEach((l, k) => {
+      if (sapAgg.has(k)) return;
+      push({ ...base, kind: 'item_remove', key: k, sku: (l.product && l.product.sku) || '', desc: l.product ? l.product.name : '(منتج محذوف)', label: 'صنف زيادة عندك', localText: sapFmt(l.qty), sapText: 'مش موجود', productId: l.productId, canApply: !dup, note: dupNote });
+    });
+    if (out.diffs.length > before) out.counts.withDiffs++; else out.counts.matchedClean++;
+  });
+
+  // 3) فواتيرك داخل نطاق تواريخ التقرير ومش في الساب (للعلم بس، مفيش إجراء تلقائي)
+  const { from, to } = out.range;
+  locals.filter((o) => !o.historicalImport && !o.deferred && !claimed.has(o.id) && o.date.slice(0, 10) >= from && o.date.slice(0, 10) <= to).forEach((o) => {
+    const num = String(o.orderNumber || '').trim();
+    const cust = (cById.get(o.customerId) || {}).name || '(محذوف)';
+    push({ kind: num ? 'local_only' : 'no_number', doc: num || `فاتورة #${o.invoiceNo || '-'}`, orderId: o.id, customerName: cust, canApply: false,
+      label: num ? 'عندك ومش في الساب' : 'فاتورة من غير رقم طلبية', localText: `${sapFmt(o.total)} ج.م — ${o.date.slice(0, 10)}`, sapText: '—',
+      note: num ? 'رقم الطلبية ده مش في التقرير: تأكد من الرقم أو إنها اتلغت/خارج التقرير' : 'مقدرتش أطابقها بأي أوردر في التقرير (العميل أو الأصناف مختلفة)' });
+  });
+  return out;
+}
+
+function sapResolveProduct(material, desc, unitPrice, res) {
+  const sku = String(material).trim().toLowerCase();
+  let p = getAll(STORAGE_KEYS.PRODUCTS).find((x) => x.sku && x.sku.trim().toLowerCase() === sku);
+  if (!p) {
+    p = addProduct({ name: desc || material, sku: material, category: 'مؤرشف | غير موجود في القايمة الحالية', basePrice: unitPrice, openingStock: 0, reorderLevel: 0, description: 'نشأ تلقائياً من مزامنة الساب' });
+    updateRecord(STORAGE_KEYS.PRODUCTS, p.id, { discontinued: true });
+    res.autoCreatedProducts.push(material);
+  }
+  return p;
+}
+
+/** بيطبّق الفروقات المختارة بس (من ناتج previewSapSync). deliveryDate: تاريخ التسليم للأصناف اللي هتتعلّم Delivered (التقرير مفيهوش Goods Issue) */
+function applySapSync(diffs, { deliveryDate = null, vatRate = 14 } = {}) {
+  const vatDiv = 1 + (Number(vatRate) || 0) / 100;
+  const dDate = /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate || '') ? deliveryDate : new Date().toISOString().slice(0, 10);
+  const res = { created: 0, linked: 0, updatedOrders: 0, applied: 0, skipped: [], autoCreatedProducts: [] };
+  const byOrder = new Map();
+  const fresh = (id) => getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === id);
+
+  diffs.filter((d) => d.canApply).forEach((d) => {
+    if (d.kind === 'missing_order') {
+      if (getAll(STORAGE_KEYS.SALES_ORDERS).some((o) => !o.voided && String(o.orderNumber || '').trim().toLowerCase() === String(d.doc).toLowerCase())) { res.skipped.push(`${d.doc}: اتضاف قبل كده`); return; }
+      const items = d.lines.map((l) => {
+        const unitPrice = r2(l.net * vatDiv), p = sapResolveProduct(l.material, l.desc, unitPrice, res);
+        const status = l.state === 'delivered' ? 'delivered' : l.state === 'partial' ? 'release' : 'confirmed';
+        return { productId: p.id, qty: l.qty, unitPrice, listPriceAtSale: unitPrice, status, ...(status === 'delivered' ? { deliveredAt: dDate } : {}) };
+      });
+      const subtotal = r2(items.reduce((s, i) => s + i.qty * i.unitPrice, 0)), at = `${d.date}T12:00:00`;
+      const order = addRecord(STORAGE_KEYS.SALES_ORDERS, {
+        customerId: d.customerId, repId: null, items, subtotal, cashDiscount: false, discountRate: 0, discountAmount: 0, total: subtotal, date: at,
+        invoiceNo: getAll(STORAGE_KEYS.SALES_ORDERS).length + 1, orderNumber: d.doc, sentByEmail: false, orderNumberUpdatedAt: at,
+        archived: false, status: items.every((i) => i.status === 'delivered') ? 'delivered' : 'confirmed', sapSynced: true,
+      });
+      if (!order) { res.skipped.push(`${d.doc}: تعذّر الحفظ (المساحة؟)`); return; }
+      items.forEach((i) => addInventoryTransaction({ productId: i.productId, type: 'out', qty: i.qty, refType: 'sales_order', refId: order.id }));
+      logAudit(order.id, 'مزامنة الساب', `اتضافت من تقرير الساب (رقم ${d.doc}) بقيمة ${subtotal.toLocaleString()}`);
+      res.created++; res.applied++;
+    } else if (d.orderId) {
+      if (!byOrder.has(d.orderId)) byOrder.set(d.orderId, []);
+      byOrder.get(d.orderId).push(d);
+    }
+  });
+
+  byOrder.forEach((list, orderId) => {
+    const order = fresh(orderId);
+    if (!order || order.voided) { res.skipped.push(`${list[0].doc}: الفاتورة مبقتش موجودة`); return; }
+    const disc = order.discountRate || 0, gross = (net) => r2((net * vatDiv) / (disc >= 100 ? 1 : 1 - disc / 100));
+    const pidByKey = new Map(), structural = list.filter((d) => ['qty', 'price', 'item_add', 'item_remove'].includes(d.kind));
+    if (structural.length) {
+      let items = order.items.map((it) => ({ productId: it.productId, qty: it.qty, unitPrice: it.unitPrice }));
+      structural.forEach((d) => {
+        if (d.kind === 'item_remove') items = items.filter((x) => x.productId !== d.productId);
+        else if (d.kind === 'item_add') { const p = sapResolveProduct(d.sku, d.desc, gross(d.net), res); pidByKey.set(d.key, p.id); const ex = items.find((x) => x.productId === p.id); if (ex) ex.qty += d.qty; else items.push({ productId: p.id, qty: d.qty, unitPrice: gross(d.net) }); }
+        else { const it = items.find((x) => x.productId === d.productId); if (!it) return; if (d.kind === 'qty') it.qty = d.newQty; else it.unitPrice = gross(d.newNet); }
+      });
+      items = items.filter((x) => x.qty > 0);
+      if (!items.length) { res.skipped.push(`${list[0].doc}: التطبيق كان هيفضّي الفاتورة (استخدم إلغاء الطلبية)`); return; }
+      updateOrderItems(orderId, items);
+    }
+    // الحالات بعد تعديل الأصناف (الصنف الجديد بيتضاف Confirmed، وبعدين بنظبط حالته)
+    list.forEach((d) => {
+      const target = d.kind === 'status' ? d.newState : (d.kind === 'item_add' && d.state !== 'pending') ? (d.state === 'delivered' ? 'delivered' : 'release') : null;
+      if (!target) return;
+      const pid = d.kind === 'status' ? d.productId : pidByKey.get(d.key);
+      (fresh(orderId).items || []).forEach((it, idx) => { if (it.productId === pid && it.status !== target) updateOrderItemStatus(orderId, idx, target, target === 'delivered' ? dDate : null); });
+    });
+    const link = list.find((d) => d.kind === 'link');
+    if (link) { updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { orderNumber: link.doc, orderNumberUpdatedAt: `${link.sapDate}T12:00:00`, deferred: false }); res.linked++; }
+    logAudit(orderId, 'مزامنة الساب', list.map((d) => `${d.label}${d.sku ? ' (' + d.sku + ')' : ''}: ${d.localText} ← ${d.sapText}`).join(' | '));
+    res.updatedOrders++; res.applied += list.length;
+  });
+  return res;
+}
+
+// ------------------------------------------------------------
+// ATP والمتاح الفعلي: الـ Remaining من آخر ملف ساب ناقص أوردراتك اللي لسه مش داخلة فيه (من غير رقم طلبية، أو اتحجزت بعد الملف، ومش مؤجَّلة)
+// ------------------------------------------------------------
+const isFS90Product = (p, pxx) => !!p && (hasCat(p.category, 'بوتاجازات') || String(pxx || '').trim().toUpperCase() === 'FS90');
+
+/** خريطة productId ← {remaining, atp, incoming, pending, effective, date, pxxGroup} (الأصناف اللي ليها Remaining من الساب بس) */
+function buildAtpMap() {
+  const latest = new Map();
+  getAll(STORAGE_KEYS.STOCK_STATUS).forEach((s) => { const c = latest.get(s.productId); if (!c || s.date > c.date) latest.set(s.productId, s); });
+  const pending = new Map();
+  getAll(STORAGE_KEYS.SALES_ORDERS).forEach((o) => {
+    if (o.voided || o.historicalImport || o.sapSynced || o.deferred || !o.createdAt) return;
+    // الطلبية اللي اتحجزت على الساب قبل ملف الـ ATP متحسوبة فيه أصلاً. اللي لسه من غير رقم طلبية (مش على الساب) أو اتحجزت بعد الملف = محسوبة عليك
+    const bookedAt = o.orderNumber ? (o.bookedAt || o.orderNumberUpdatedAt || o.createdAt) : null;
+    o.items.forEach((it) => {
+      const st = latest.get(it.productId);
+      if (!st) return;
+      const counts = bookedAt ? bookedAt > st.date : it.status !== 'delivered';
+      if (counts) pending.set(it.productId, (pending.get(it.productId) || 0) + it.qty);
+    });
+  });
+  const map = new Map();
+  latest.forEach((st, pid) => {
+    if (st.remaining === null || st.remaining === undefined) return;
+    const pend = pending.get(pid) || 0;
+    map.set(pid, { remaining: st.remaining, atp: st.atp, incoming: st.incoming, orders: st.orders, pxxGroup: st.pxxGroup || '', date: st.date, pending: pend, effective: st.remaining - pend });
+  });
+  return map;
+}
+
+/** كام يوم فات من آخر تحديث ATP (null لو لسه ما اتحدّثش خالص) */
+function getAtpAgeDays() {
+  const last = getAll(STORAGE_KEYS.STOCK_STATUS).reduce((m, s) => (s.date > m ? s.date : m), '');
+  return last ? Math.floor((Date.now() - new Date(last).getTime()) / 86400000) : null;
+}
+
+/**
+ * فحص أصناف فاتورة (جديدة أو معدّلة) مقابل المتاح الفعلي. items: [{productId, qty}].
+ * orderId (للتعديل): المطلوب = الزيادة عن الكمية القديمة بس. over = الرصيد بعد الأوردر هيبقى سالب.
+ */
+function checkSaleAgainstAtp(items, { orderId = null } = {}) {
+  const map = buildAtpMap(), pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
+  const old = new Map();
+  if (orderId) { const o = getAll(STORAGE_KEYS.SALES_ORDERS).find((x) => x.id === orderId); if (o && o.deferred) return []; if (o) o.items.forEach((it) => old.set(it.productId, (old.get(it.productId) || 0) + it.qty)); }
+  const want = new Map();
+  items.forEach((it) => want.set(it.productId, (want.get(it.productId) || 0) + (Number(it.qty) || 0)));
+  const out = [];
+  want.forEach((qty, pid) => {
+    const p = pMap.get(pid), a = map.get(pid), need = Math.max(qty - (old.get(pid) || 0), 0);
+    const base = { productId: pid, sku: (p && p.sku) || '', name: p ? p.name : '?', qty, need };
+    if (!a) { out.push({ ...base, hasAtp: false, over: false }); return; }
+    const after = a.effective - need;
+    out.push({ ...base, hasAtp: true, effective: a.effective, remaining: a.remaining, pending: a.pending, incoming: a.incoming, after, over: need > 0 && after < 0, fs90: isFS90Product(p, a.pxxGroup) });
+  });
+  return out;
+}
+
+/** أصناف في تجاوز (سالب) وأصناف قريبة من النفاد، ومعاها الفواتير الشغالة (غير المؤرشفة وغير المسلَّمة) اللي فيها الصنف */
+function getAtpWatchlist({ watchMax = 2 } = {}) {
+  const map = buildAtpMap();
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
+  const cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c.name]));
+  const active = getActiveOrders();
+  const ordersFor = (pid) => active.flatMap((o) => o.items.filter((it) => it.productId === pid && it.status !== 'delivered')
+    .map((it) => ({ orderId: o.id, invoiceNo: o.invoiceNo, orderNumber: o.orderNumber, customerName: cMap.get(o.customerId) || '(محذوف)', qty: it.qty })));
+  const negatives = [], watch = [];
+  map.forEach((a, pid) => {
+    const p = pMap.get(pid);
+    if (!p || isProductHidden(p)) return;
+    const row = { productId: pid, sku: p.sku || '', name: p.name, remaining: a.remaining, effective: a.effective, pending: a.pending, incoming: a.incoming, fs90: isFS90Product(p, a.pxxGroup) };
+    if (a.effective < 0 || a.remaining < 0) negatives.push({ ...row, orders: ordersFor(pid) });
+    else if (a.effective <= watchMax) watch.push(row);
+  });
+  negatives.sort((x, y) => Number(y.fs90) - Number(x.fs90) || x.effective - y.effective);
+  watch.sort((x, y) => Number(y.fs90) - Number(x.fs90) || x.effective - y.effective);
+  return { ageDays: getAtpAgeDays(), negatives, watch, productsWithAtp: map.size };
+}
+
+// ------------------------------------------------------------
+// الكميات المؤجَّلة: بتقسّم طلبية لجزء محجوز على الساب وجزء مؤجَّل (طلبية مؤجَّلة منفصلة من غير رقم طلبية)،
+// لحد ما الكمية تتوفر وتتحجز. المؤجَّل مش بيتخصم من المتاح الفعلي ومش بيظهر في تنبيه تجديد الحجز ولا في المحقق (لأنه مش مسلَّم).
+// ------------------------------------------------------------
+
+/**
+ * تقسيم طلبية: deferQty = { productId: الكمية اللي تتأجل }. الصنف المسلَّم ما بيتأجلش.
+ * الطلبية الأصلية بتفضل بالباقي (نفس الرقم والحالة)، والمؤجَّل بيتعمل كطلبية جديدة لنفس العميل بنفس الأسعار والخصم ومربوطة بالأصلية.
+ * إجمالي رصيد العميل ما بيتغيّرش (اللي اتشال من الأصلية اتضاف للمؤجَّلة).
+ */
+function splitOrder(orderId, deferQty) {
+  const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
+  if (!order || order.voided) return null;
+  const left = new Map(Object.entries(deferQty || {}).map(([k, v]) => [k, Math.max(Math.floor(Number(v) || 0), 0)]));
+  const keep = [], defer = [];
+  order.items.forEach((it) => {
+    const want = it.status === 'delivered' ? 0 : Math.min(left.get(it.productId) || 0, it.qty);
+    if (want > 0) left.set(it.productId, left.get(it.productId) - want);
+    if (it.qty - want > 0) keep.push({ productId: it.productId, qty: it.qty - want, unitPrice: it.unitPrice });
+    if (want > 0) defer.push({ productId: it.productId, qty: want, unitPrice: it.unitPrice, listPriceAtSale: it.listPriceAtSale ?? it.unitPrice, status: 'confirmed' });
+  });
+  if (!defer.length) return null;
+  if (!keep.length) throw new Error('مينفعش تأجّل الطلبية كلها بالتقسيم — سيبها من غير رقم طلبية على الساب لحد ما تتوفر.');
+
+  const discountRate = order.discountRate || 0;
+  const subtotal = defer.reduce((s, i) => s + i.qty * i.unitPrice, 0);
+  const discountAmount = subtotal * (discountRate / 100);
+  const child = addRecord(STORAGE_KEYS.SALES_ORDERS, {
+    customerId: order.customerId, repId: order.repId || null, items: defer, subtotal, cashDiscount: discountRate > 0, discountRate, discountAmount, total: subtotal - discountAmount,
+    date: order.date, invoiceNo: getAll(STORAGE_KEYS.SALES_ORDERS).length + 1, orderNumber: null, sentByEmail: false, orderNumberUpdatedAt: order.date,
+    archived: false, status: 'unconfirmed', deferred: true, deferredFrom: order.id, deferredFromInvoice: order.invoiceNo || '',
+  });
+  if (!child) throw new Error('تعذّر حفظ الطلبية المؤجَّلة — المساحة ممتلئة على الأرجح. اعمل نسخة احتياطية وفرّغ مساحة.');
+  defer.forEach((i) => addInventoryTransaction({ productId: i.productId, type: 'out', qty: i.qty, refType: 'sales_order', refId: child.id }));
+  const parent = updateOrderItems(orderId, keep); // بيعيد حساب الإجمالي وحركات المخزون للباقي
+  const pNames = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p.sku || p.name]));
+  const txt = defer.map((i) => `${pNames.get(i.productId) || '?'} × ${i.qty}`).join('، ');
+  logAudit(orderId, 'تأجيل كميات', `اتنقل لطلبية مؤجَّلة (فاتورة #${child.invoiceNo}): ${txt}`);
+  logAudit(child.id, 'طلبية مؤجَّلة', `اتقسمت من فاتورة #${order.invoiceNo || '-'}: ${txt}`);
+  return { parent, child };
+}
+
+/** تعليم طلبية كاملة كمؤجَّلة (لو كل أصنافها هتتأجل، فمفيش حاجة تفضل في الأصلية) */
+function markOrderDeferred(orderId) {
+  const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
+  if (!order) return null;
+  logAudit(orderId, 'طلبية مؤجَّلة', 'الكمية كلها اتأجلت لحد ما تتوفر');
+  return updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { deferred: true, orderNumber: null });
+}
+
+/** المؤجَّلة: كل طلبية ومعاها المتاح الفعلي لكل صنف، والكمية اللي تنفع تتحجز دلوقتي (الأقدم الأول، من غير ما طلبيتين يحجزوا نفس الكمية) */
+function getDeferredOrders() {
+  const map = buildAtpMap();
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
+  const cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c.name]));
+  const pool = new Map();
+  map.forEach((a, pid) => pool.set(pid, Math.max(a.effective, 0)));
+  const rank = { ready: 0, partial: 1, unknown: 2, wait: 3 };
+  return getReportOrders().filter((o) => o.deferred).sort((a, b) => new Date(a.date) - new Date(b.date)).map((o) => {
+    const items = o.items.map((it) => {
+      const a = map.get(it.productId), p = pMap.get(it.productId);
+      let canBook = it.qty, state = 'unknown';
+      if (a) { const avail = pool.get(it.productId) || 0; canBook = Math.min(it.qty, avail); pool.set(it.productId, avail - canBook); state = canBook >= it.qty ? 'ready' : canBook > 0 ? 'partial' : 'wait'; }
+      return { productId: it.productId, sku: (p && p.sku) || '', name: p ? p.name : '?', qty: it.qty, canBook, state, effective: a ? a.effective : null, incoming: a ? a.incoming : null, fs90: isFS90Product(p, a && a.pxxGroup) };
+    });
+    const known = items.filter((i) => i.state !== 'unknown');
+    const state = !known.length ? 'unknown' : known.every((i) => i.state === 'ready') ? 'ready' : known.some((i) => i.canBook > 0) ? 'partial' : 'wait';
+    return { order: o, customerName: cMap.get(o.customerId) || '(محذوف)', fromInvoice: o.deferredFromInvoice || '', items, state };
+  }).sort((a, b) => rank[a.state] - rank[b.state]);
+}
+
+/**
+ * بعد ما تحجز المؤجَّلة على الساب: بتاخد رقم الطلبية وتبقى طلبية عادية (بتدخل في المتاح الفعلي وعد تجديد الحجز).
+ * bookQty = { productId: الكمية اللي اتحجزت فعلاً }. اللي ما اتحجزش بيتنقل لطلبية مؤجَّلة جديدة. من غير bookQty = كله اتحجز.
+ */
+function releaseDeferredOrder(orderId, orderNumber, bookQty = null) {
+  const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
+  const num = String(orderNumber || '').trim();
+  if (!order || !order.deferred) return null;
+  if (!num) throw new Error('اكتب رقم الطلبية على الساب');
+  const totals = new Map();
+  order.items.forEach((it) => totals.set(it.productId, (totals.get(it.productId) || 0) + it.qty));
+  const leftover = {};
+  let booked = 0;
+  totals.forEach((q, pid) => {
+    const b = bookQty && bookQty[pid] !== undefined ? Math.min(Math.max(Math.floor(Number(bookQty[pid]) || 0), 0), q) : q;
+    booked += b;
+    if (q - b > 0) leftover[pid] = q - b;
+  });
+  if (booked <= 0) throw new Error('مفيش كمية محجوزة — اكتب كمية أكبر من صفر لصنف واحد على الأقل');
+  let child = null;
+  if (Object.keys(leftover).length) child = splitOrder(orderId, leftover).child;
+  const now = new Date().toISOString();
+  const updated = updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { deferred: false, orderNumber: num, orderNumberUpdatedAt: now, bookedAt: now });
+  logAudit(orderId, 'تم الحجز على الساب', `رقم الطلبية ${num}${child ? ` — والباقي فضل مؤجَّل (فاتورة #${child.invoiceNo})` : ''}`);
+  return { order: updated, leftover: child };
+}
+
+/** المتاح الفعلي لكل صنف في طلبية معيّنة (لتحديد الكمية اللي تفضل محجوزة عند التقسيم) */
+function getOrderAtpAvailability(orderId) {
+  const order = getAll(STORAGE_KEYS.SALES_ORDERS).find((o) => o.id === orderId);
+  if (!order) return {};
+  const map = buildAtpMap(), qty = new Map();
+  order.items.forEach((it) => qty.set(it.productId, (qty.get(it.productId) || 0) + it.qty));
+  const out = {};
+  qty.forEach((q, pid) => { const a = map.get(pid); if (a) out[pid] = { effective: a.effective, availableForOrder: a.effective + q, incoming: a.incoming }; });
+  return out;
+}
+
+// ------------------------------------------------------------
 // النسخ الاحتياطي والاستيراد (Backup / Restore) - إجباري
 // ------------------------------------------------------------
 
@@ -2406,7 +2830,7 @@ export {
   addKpi, getKpiProgress, getMonthlyScorecard, productFamily,
   getFamilies, getAnalytics, getSmartAlerts, getAvailablePeriods,
   isProductHidden, getActiveProducts, syncCatalogToList,
-  getSetting, setSetting, getWhiteSpaceGroups, setWhiteSpaceGroups, getTargetCap, setTargetCap, getDeliveredLines, getKpiDetails, getPeriodTotalValue, TARGET_TEMPLATE, getMonthlyTargetsForm, saveMonthlyTargets, setOrderItemDeliveredAt,
+  getSetting, setSetting, getWhiteSpaceGroups, setWhiteSpaceGroups, getTargetCap, setTargetCap, getDeliveredLines, getDeliveredReturns, getKpiDetails, getPeriodTotalValue, TARGET_TEMPLATE, getMonthlyTargetsForm, saveMonthlyTargets, setOrderItemDeliveredAt,
   DIVISIONS, productDivision, productPath, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog,
   getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
@@ -2414,6 +2838,10 @@ export {
   getStatusMismatchOrders, getDealerNotCounted,
   DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, setDealerFocus, deleteDealerTarget, getDealerAchieved, getDealerTargetProgress, getDealerTargetsOverview,
   getAnalyticsDateBasis, setAnalyticsDateBasis,
+  // المحقق لشهر قديم + مزامنة الساب
+  getAchievedOnlyKpis, isPeriodApproximate, getKpiDetailsFor, previewSapSync, applySapSync,
+  buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp, getAtpWatchlist,
+  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
 };

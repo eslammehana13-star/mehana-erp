@@ -62,6 +62,18 @@
 
 <div id="alertsBox"></div>
 
+<div class="card" id="deferredCard" style="display:none;">
+  <h2>⏳ كميات مؤجلة</h2>
+  <div id="deferredBody"></div>
+  <p class="muted"><a href="invoices.html">فتح الفواتير ←</a></p>
+</div>
+
+<div class="card" id="atpCard" style="display:none;">
+  <h2>🚨 تجاوزات ATP</h2>
+  <div id="atpBody"></div>
+  <p class="muted"><a href="inventory.html">فتح المخزون ←</a></p>
+</div>
+
 <div class="card" id="dealerBehindCard" style="display:none;">
   <h2>🎯 تجار متأخرين عن Slab 1</h2>
   <table><thead><tr><th>التاجر</th><th>المحقق</th><th>المطلوب لحد دلوقتي</th><th>الفرق</th><th>مطلوب/شهر لـ Slab 1</th></tr></thead><tbody id="dealerBehind"></tbody></table>
@@ -96,7 +108,7 @@ import {
   getCustomerBalance, getAllCustomerBalances, getOverCreditLimitCustomers,
   getLowStockAlerts, getChecksDueSoon, getOrdersNeedingRenewal,
   getTopCustomers, getTopProducts, getMonthlyScorecard, getDaysSinceLastBackup,
-  getActiveOrders, getAgingReport, getDealerTargetsOverview,
+  getActiveOrders, getAgingReport, getDealerTargetsOverview, getAtpWatchlist, getDeferredOrders,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -154,6 +166,25 @@ function renderAlerts() {
   }
 
   box.innerHTML = sections.length ? sections.join('') : '<p class="all-clear">✅ مفيش تنبيهات دلوقتي — كل حاجة تمام.</p>';
+}
+
+function renderAtp() {
+  const w = getAtpWatchlist();
+  const card = document.getElementById('atpCard');
+  if (!w.productsWithAtp || (!w.negatives.length && !w.watch.length && !(w.ageDays >= 2))) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const tag = (r) => `${r.fs90 ? '🔥 ' : ''}<b dir="ltr">${esc(r.sku || r.name)}</b>`;
+  document.getElementById('atpBody').innerHTML =
+    (w.ageDays >= 2 ? `<p class="muted" style="color:var(--danger);">⚠ آخر تحديث ATP من ${w.ageDays} يوم</p>` : '')
+    + (w.negatives.length ? `<ul style="margin:0; padding-inline-start:18px; font-size:13px;">${w.negatives.map(r => `<li>${tag(r)} — المتاح الفعلي <b style="color:var(--danger)">${r.effective}</b> (الجاي ${r.incoming || 0})${r.orders.length ? ': ' + r.orders.map(o => `${esc(o.customerName)} (${o.qty})`).join('، ') : ''}</li>`).join('')}</ul>` : '')
+    + (w.watch.length ? `<p class="muted">قريب من النفاد: ${w.watch.map(r => `${tag(r)} (${r.effective})`).join('، ')}</p>` : '');
+}
+
+function renderDeferred() {
+  const list = getDeferredOrders();
+  document.getElementById('deferredCard').style.display = list.length ? '' : 'none';
+  const lab = { ready: '✅ اتوفر', partial: '🟡 اتوفر جزء', wait: '⏳ لسه', unknown: '' };
+  document.getElementById('deferredBody').innerHTML = `<ul style="margin:0; padding-inline-start:18px; font-size:13px;">${list.map(d => `<li><b>${esc(d.customerName)}</b> ${lab[d.state]} — ${d.items.map(i => `<span dir="ltr">${esc(i.sku || i.name)}</span> ×${i.qty}${i.state === 'partial' ? ` (متاح ${i.canBook})` : ''}`).join('، ')}</li>`).join('')}</ul>`;
 }
 
 function renderDealerBehind() {
@@ -246,6 +277,8 @@ document.getElementById('btnMonthlyReport').addEventListener('click', exportMont
 
 renderKpis();
 renderAlerts();
+renderAtp();
+renderDeferred();
 renderDealerBehind();
 renderTopLists();
 </script>

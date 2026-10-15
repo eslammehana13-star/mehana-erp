@@ -70,12 +70,15 @@
   <div class="toolbar">
     <h2>🎯 نسبة تحقيقي</h2>
     <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <button type="button" class="secondary" id="dash_prev" title="الشهر اللي قبله">›</button>
       <input type="month" id="dash_period" style="max-width:160px;">
+      <button type="button" class="secondary" id="dash_next" title="الشهر اللي بعده">‹</button>
       <label style="font-size:13px; display:flex; align-items:center; gap:6px;"><input type="checkbox" id="dash_cap" style="flex:none; width:auto;"> حد أقصى 100% لكل KPI في السكور</label>
     </div>
   </div>
   <p class="muted">المحقق من المسلَّم فعلياً (Delivered) وبتاريخ التسليم، صافي بعد الضريبة للقيم. الأصناف بتبقى Delivered من نافذة تفاصيل الأصناف في الفواتير.</p>
-  <div id="dashEmpty" class="muted" style="display:none; padding:8px 0;">لسه ما حددتش تارجت الشهر ده — املا الأرقام في كارت "إعداد تارجت الشهر" تحت واضغط حفظ.</div>
+  <div id="dashEmpty" class="muted" style="display:none; padding:8px 0;">الشهر ده مفيهوش تارجت محفوظ، فالأرقام تحت هي <b>المحقق بس</b> (من غير هدف ولا نسبة). لو عايز نسبة، املا كارت "إعداد تارجت الشهر" تحت واضغط حفظ.</div>
+  <div id="dashAchieved" style="display:none;"></div>
   <div id="dashBody">
     <div class="kpis" id="dashStrip"></div>
     <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
@@ -207,7 +210,7 @@ import {
   initStorage, addRep, getAll, STORAGE_KEYS,
   setTarget, getTargetProgress, deleteRecord,
   addKpi, getMonthlyScorecard,
-  getKpiDetails, getPeriodTotalValue, getMonthlyTargetsForm, saveMonthlyTargets, TARGET_TEMPLATE,
+  getKpiDetails, getKpiDetailsFor, getAchievedOnlyKpis, isPeriodApproximate, getPeriodTotalValue, getMonthlyTargetsForm, saveMonthlyTargets, TARGET_TEMPLATE,
   getWhiteSpaceGroups, setWhiteSpaceGroups, setSetting, getTargetCap, setTargetCap,
   downloadBackup, importBackup,
 } from './erp-data-layer.js';
@@ -436,6 +439,34 @@ function gaugeSvg(pct, actualLabel, maxLabel) {
 
 function dashPeriod() { return document.getElementById('dash_period').value || currentPeriod(); }
 
+function detailBlock(k, d) {
+  if (!d) return '';
+  if (d.kind === 'whitespace') {
+    return `<details style="margin-bottom:6px;"><summary style="cursor:pointer;">تفاصيل ${esc(k.name)} (${d.rows.length} تاجر)</summary>
+      <ul style="font-size:13px;">${d.rows.map(r => `<li>${esc(r.name)} — ${r.familyCount} فاميلي: ${r.families.map(esc).join('، ')}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></details>`;
+  }
+  const unit = (x) => k.metricType === 'category_count' ? `${x.qty.toLocaleString()} قطعة` : `${x.value.toLocaleString()} (${x.qty.toLocaleString()} قطعة)`;
+  return `<details style="margin-bottom:6px;"><summary style="cursor:pointer;">تفاصيل ${esc(k.name)}</summary>
+    <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:13px;">
+      <div><b>العملاء (${d.byCustomer.length})</b><ul>${d.byCustomer.slice(0, 15).map(x => `<li>${esc(x.name)} — ${unit(x)}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div>
+      <div><b>أعلى منتجات</b><ul>${d.byProduct.slice(0, 10).map(x => `<li>${esc(x.name)} — ${unit(x)}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div>
+    </div></details>`;
+}
+
+const APPROX_NOTE = '⚠ الشهر ده فيه أصناف مسلَّمة من الأوردرات التاريخية (مفيهاش تاريخ تسليم فعلي)، فبتتحسب بتاريخ الطلب — الأرقام تقريبية.';
+
+function renderAchievedOnly(period) {
+  const vat = Number(document.getElementById('setup_vat').value) || 0;
+  const rows = getAchievedOnlyKpis(period, { vatRate: vat });
+  const box = document.getElementById('dashAchieved');
+  box.style.display = '';
+  box.innerHTML = `<div class="kpis">${rows.map(k => `<div class="kpi"><div class="label">${esc(k.name)} (المحقق)</div><div class="value">${fmtKpi(k, k.achieved)}</div></div>`).join('')}
+    <div class="kpi"><div class="label">Total Value (المحقق)</div><div class="value">${fmtNum(getPeriodTotalValue(period, vat))}</div></div></div>
+    <div class="muted">القيم صافي بعد الضريبة (${vat}%). OverDue يدوي فمش ظاهر هنا.</div>
+    ${isPeriodApproximate(period) ? `<div class="muted" style="margin-top:6px; color:var(--danger);">${APPROX_NOTE}</div>` : ''}
+    <div style="margin-top:10px;">${rows.map(k => detailBlock(k, getKpiDetailsFor(k))).join('')}</div>`;
+}
+
 function renderDashboard() {
   const period = dashPeriod();
   document.getElementById('dash_period').value = period;
@@ -445,7 +476,8 @@ function renderDashboard() {
   const kpis = sc.kpis.slice().sort((a, b) => order(a) - order(b));
   document.getElementById('dashEmpty').style.display = kpis.length ? 'none' : 'block';
   document.getElementById('dashBody').style.display = kpis.length ? '' : 'none';
-  if (!kpis.length) return;
+  document.getElementById('dashAchieved').style.display = 'none';
+  if (!kpis.length) { renderAchievedOnly(period); return; }
 
   document.getElementById('dashStrip').innerHTML = kpis.map(k => `<div class="kpi"><div class="label">${esc(k.name)} (الهدف)</div><div class="value">${k.metricType === 'manual_percent' ? '—' : fmtKpi(k, k.targetValue)}</div></div>`).join('')
     + `<div class="kpi"><div class="label">Total Value (المحقق)</div><div class="value">${fmtNum(getPeriodTotalValue(period, Number(document.getElementById('setup_vat').value) || 0))}</div></div>`;
@@ -458,22 +490,9 @@ function renderDashboard() {
     <td>${esc(k.name)}</td><td>${k.weight}%</td><td>${fmtKpi(k, k.achieved)}</td><td>${k.metricType === 'manual_percent' ? '—' : fmtKpi(k, k.targetValue)}</td>
     <td>${k.percentage}%</td><td><b>${k.weightedScore}%</b></td></tr>`).join('')
     + `<tr><td colspan="5"><b>الإجمالي</b></td><td><b>${sc.overallScore}%</b></td></tr>`;
-  document.getElementById('weightNote').textContent = sc.totalWeight !== 100 ? `⚠ مجموع الأوزان ${sc.totalWeight}% — المفروض يكون 100%.` : '';
+  document.getElementById('weightNote').textContent = (sc.totalWeight !== 100 ? `⚠ مجموع الأوزان ${sc.totalWeight}% — المفروض يكون 100%. ` : '') + (isPeriodApproximate(period) ? APPROX_NOTE : '');
 
-  document.getElementById('dashDetails').innerHTML = kpis.map(k => {
-    const d = getKpiDetails(k.id);
-    if (!d) return '';
-    if (d.kind === 'whitespace') {
-      return `<details style="margin-bottom:6px;"><summary style="cursor:pointer;">تفاصيل ${esc(k.name)} (${d.rows.length} تاجر)</summary>
-        <ul style="font-size:13px;">${d.rows.map(r => `<li>${esc(r.name)} — ${r.familyCount} فاميلي: ${r.families.map(esc).join('، ')}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></details>`;
-    }
-    const unit = (x) => k.metricType === 'category_count' ? `${x.qty.toLocaleString()} قطعة` : `${x.value.toLocaleString()} (${x.qty.toLocaleString()} قطعة)`;
-    return `<details style="margin-bottom:6px;"><summary style="cursor:pointer;">تفاصيل ${esc(k.name)}</summary>
-      <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:13px;">
-        <div><b>العملاء (${d.byCustomer.length})</b><ul>${d.byCustomer.slice(0, 15).map(x => `<li>${esc(x.name)} — ${unit(x)}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div>
-        <div><b>أعلى منتجات</b><ul>${d.byProduct.slice(0, 10).map(x => `<li>${esc(x.name)} — ${unit(x)}</li>`).join('') || '<li class="muted">لا يوجد</li>'}</ul></div>
-      </div></details>`;
-  }).join('');
+  document.getElementById('dashDetails').innerHTML = kpis.map(k => detailBlock(k, getKpiDetails(k.id))).join('');
 }
 
 function renderSetup() {
@@ -501,6 +520,13 @@ function textToWs(text) {
 }
 
 document.getElementById('dash_period').addEventListener('change', () => { renderDashboard(); renderSetup(); });
+function shiftDash(delta) {
+  const [y, m] = dashPeriod().split('-').map(Number), d = new Date(y, m - 1 + delta, 1);
+  document.getElementById('dash_period').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  renderDashboard(); renderSetup();
+}
+document.getElementById('dash_prev').addEventListener('click', () => shiftDash(-1));
+document.getElementById('dash_next').addEventListener('click', () => shiftDash(1));
 document.getElementById('dash_cap').addEventListener('change', (e) => { setTargetCap(e.target.checked); renderDashboard(); });
 document.getElementById('setupBody').addEventListener('input', updateWeightSum);
 document.getElementById('setup_vat').addEventListener('change', renderDashboard);

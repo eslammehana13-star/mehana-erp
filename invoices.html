@@ -67,6 +67,15 @@
   .modal-box { background: #fff; border-radius: 14px; max-width: 860px; width: 100%; padding: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); margin-bottom: 24px; }
   .modal-box-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 8px; }
   .modal-close { background: var(--surface-alt, #E7EAE7); color: var(--text); border-radius: 50%; width: 32px; height: 32px; padding: 0; font-size: 16px; line-height: 1; flex: none; }
+  .sync-grp { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; background: #fff; }
+  .sync-grp h4 { margin: 0 0 6px; font-size: 14px; color: var(--primary-dark); }
+  .sync-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px dashed var(--border); font-size: 13px; }
+  .sync-row input[type=checkbox] { flex: none; width: auto; min-width: 0; margin-top: 3px; }
+  .sync-row .body { flex: 1; min-width: 0; }
+  .sync-row .vals { color: var(--muted); }
+  .sync-row .vals b { color: var(--text); }
+  .sync-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px; background: #E2ECEC; color: var(--primary-dark); margin-inline-end: 4px; }
+  .sync-tag.info { background: #EEE; color: var(--muted); }
 </style>
 <link rel="stylesheet" href="theme.css">
 <script src="theme.js"></script>
@@ -97,6 +106,7 @@
     <button type="button" class="secondary" id="btnBulkImport" style="margin-top:6px;">استيراد الأصناف</button>
   </div>
 
+  <div id="atpAgeBox"></div>
   <form id="saleForm">
     <div style="display:flex; gap:6px; width:100%; align-items:center;">
       <select id="s_customer" required style="flex:1;"></select>
@@ -123,6 +133,12 @@
       <button type="submit">حفظ الفاتورة</button>
     </div>
   </form>
+</div>
+
+<div class="card" id="deferredCard" style="display:none;">
+  <h2>⏳ كميات مؤجلة (منتظرة الساب)</h2>
+  <p class="muted">كميات اتقسمت من طلبيات عشان مش متاحة على الساب. المؤجَّل مش بيتخصم من المتاح ومش محسوب في التارجت. لما الكمية تتوفر: اكتب كام هتحجز، انسخ للساب، واحجز، وبعدين دوس "تم الحجز" واكتب رقم الطلبية.</p>
+  <div id="deferredBody"></div>
 </div>
 
 <div class="card">
@@ -187,6 +203,23 @@
   </details>
 </div>
 
+<div class="card">
+  <details id="syncDetails">
+    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🔄 مزامنة مع تقرير الساب (مراجعة الأوردرات)</summary>
+    <div style="margin-top:12px;">
+      <p class="muted">الصق تقرير الساب (نفس أعمدة الاستيراد التاريخي: Document Date ← Sales Document ← Sold-to Party ← Material ← Material Description ← Order Quantity ← Net Price ← Delivery Status). المقارنة برقم الـ Sales Document = رقم الطلبية في الفاتورة. <b>المقارنة لوحدها مبتغيّرش أي حاجة</b> — إنت اللي بتختار الفروقات وتضغط "طبّق المحدد".</p>
+      <textarea id="sapSyncText" rows="5" placeholder="الصق تقرير الساب كامل (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">هامش فرق السعر % <input type="number" id="syncTol" value="1" min="0" step="0.5" style="width:70px;"></label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">ضريبة % <input type="number" id="syncVat" value="14" min="0" step="0.5" style="width:70px;"></label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="التقرير مفيهوش Goods Issue، فالأصناف اللي هتتعلّم Delivered هتاخد التاريخ ده (والتارجت بيتحسب بيه)">تاريخ التسليم للأصناف الجديدة المسلَّمة <input type="date" id="syncDelDate" style="width:150px;"></label>
+        <button type="button" id="btnSyncCompare">🔍 قارن</button>
+      </div>
+      <div id="syncResult" style="margin-top:12px;"></div>
+    </div>
+  </details>
+</div>
+
 <div class="modal-overlay" id="itemsModalOverlay">
   <div class="modal-box">
     <div class="modal-box-header">
@@ -208,6 +241,8 @@ import {
   getActiveOrders, startNewMonth,
   updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS, setOrderItemDeliveredAt,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
+  previewSapSync, applySapSync, buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp,
+  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
 } from './erp-data-layer.js';
 
 /** نص المنتج في القايمة: كود — وصف — سعر (الكود بيتضاف لو الاسم مش بادئ بيه) */
@@ -250,6 +285,7 @@ function statusOptionsHtml(current) {
 /** محتوى مودال "تفاصيل الأصناف" لطلبية معيّنة — بيتبني من جديد كل مرة يتفتح فيها */
 function buildItemsPanelHtml(order) {
   const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const atpAv = getOrderAtpAvailability(order.id);
   const itemsRowsHtml = order.items.map((it, idx) => {
     const p = products.find(pp => pp.id === it.productId);
     const hasOffer = it.listPriceAtSale && it.listPriceAtSale > it.unitPrice;
@@ -261,6 +297,7 @@ function buildItemsPanelHtml(order) {
         <td><select class="status-select ${it.status || 'unconfirmed'}" data-item-status="${order.id}" data-item-idx="${idx}">${statusOptionsHtml(it.status || 'unconfirmed')}</select></td>
         <td>${it.status === 'delivered' ? `<input type="date" class="item-delivered-at" data-idx="${idx}" value="${String(it.deliveredAt || order.date || '').slice(0, 10)}" style="width:135px;" title="تاريخ التسليم الفعلي — التارجت بيتحسب بيه">` : '<span class="muted">—</span>'}</td>
         <td><input type="number" class="item-return-qty" value="0" min="0" max="${it.qty}" style="width:55px;" title="كمية مرتجعة"></td>
+        <td>${it.status === 'delivered' || order.deferred ? '<span class="muted">—</span>' : `<input type="number" class="split-keep" data-qty="${it.qty}" value="${keepDefault(it, atpAv)}" min="0" max="${it.qty}" style="width:60px;"> <span class="muted" style="font-size:11px;">${atpAv[it.productId] ? 'متاح ' + atpAv[it.productId].availableForOrder : ''}</span>`}</td>
         <td><button class="danger" data-remove-item="${order.id}" data-remove-product="${it.productId}" style="padding:3px 8px; font-size:12px;">🗑</button></td>
       </tr>`;
   }).join('');
@@ -281,7 +318,7 @@ function buildItemsPanelHtml(order) {
   return `
     <div class="items-panel">
       <table>
-        <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>حالة الصنف</th><th>تاريخ التسليم</th><th>مرتجع</th><th></th></tr></thead>
+        <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>حالة الصنف</th><th>تاريخ التسليم</th><th>مرتجع</th><th title="الكمية اللي هتفضل محجوزة على الساب. الباقي بيتأجل">اتحجز على الساب</th><th></th></tr></thead>
         <tbody id="itemsBody-${order.id}">${itemsRowsHtml}</tbody>
       </table>
       <div style="display:flex; gap:6px; align-items:center; margin-top:8px; flex-wrap:wrap;">
@@ -295,10 +332,17 @@ function buildItemsPanelHtml(order) {
         </label>
         <button data-save-items="${order.id}">💾 حفظ تعديلات الأصناف</button>
         <button class="secondary" data-record-return="${order.id}">↩ تسجيل مرتجع للكميات المحددة</button>
+        ${order.deferred ? '' : `<button class="secondary" data-split-order="${order.id}" title="الكمية في عمود اتحجز على الساب بتفضل، والباقي بيتنقل لطلبية مؤجَّلة">✂ قسّم الطلبية (الباقي يتأجل)</button>`}
       </div>
       ${returnsHtml}
       ${auditHtml}
     </div>`;
+}
+
+/** الكمية اللي تفضل محجوزة افتراضياً: الكمية ناقص العجز في المتاح الفعلي */
+function keepDefault(it, av) {
+  const a = av[it.productId];
+  return a ? Math.max(it.qty + Math.min(a.effective, 0), 0) : it.qty;
 }
 
 function readCurrentItems(orderId) {
@@ -342,7 +386,7 @@ function openItemsModal(orderId) {
   if (!order) { closeItemsModal(); return; }
   const customer = getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === order.customerId);
   document.getElementById('itemsModalTitle').textContent =
-    `${customer?.name || '(محذوف)'} — ${new Date(order.date).toLocaleDateString('ar-EG')}${order.invoiceNo ? ` — فاتورة #${order.invoiceNo}` : ''}`;
+    `${customer?.name || '(محذوف)'} — ${new Date(order.date).toLocaleDateString('ar-EG')}${order.invoiceNo ? ` — فاتورة #${order.invoiceNo}` : ''}${order.deferred ? ' — ⏳ مؤجَّلة' : ''}`;
   document.getElementById('itemsModalBody').innerHTML = buildItemsPanelHtml(order);
   document.getElementById('itemsModalOverlay').classList.add('open');
   attachItemsPanelListeners(orderId);
@@ -369,7 +413,7 @@ function attachItemsPanelListeners(orderId) {
   body.querySelectorAll('[data-save-items]').forEach(btn => btn.addEventListener('click', () => {
     const items = readCurrentItems(orderId);
     if (items.length === 0) { alert('لازم يفضل صنف واحد على الأقل — استخدم "إلغاء الطلبية" لو عايز تلغيها بالكامل'); return; }
-    if (!confirmShortages(checkShortagesForEdit(orderId, items))) return;
+    if (!confirmAtp(items, orderId)) return;
     const dv = document.getElementById(`editDisc-${orderId}`).value;
     updateOrderItems(orderId, items, { discountRate: dv === '' ? null : Number(dv) });
     refresh();
@@ -386,7 +430,7 @@ function attachItemsPanelListeners(orderId) {
     const unitPrice = Number(document.getElementById(`addItemPrice-${orderId}`).value) || 0;
     const existing = items.find(it => it.productId === productId);
     if (existing) { existing.qty += qty; } else { items.push({ productId, qty, unitPrice }); }
-    if (!confirmShortages(checkShortagesForEdit(orderId, items))) return;
+    if (!confirmAtp(items, orderId)) return;
     const dv = document.getElementById(`editDisc-${orderId}`).value;
     updateOrderItems(orderId, items, { discountRate: dv === '' ? null : Number(dv) });
     refresh();
@@ -397,6 +441,21 @@ function attachItemsPanelListeners(orderId) {
     if (items.length === 0) { alert('لازم يفضل صنف واحد على الأقل — استخدم "إلغاء الطلبية" لو عايز تلغيها بالكامل'); return; }
     const dv = document.getElementById(`editDisc-${orderId}`).value;
     updateOrderItems(orderId, items, { discountRate: dv === '' ? null : Number(dv) });
+    refresh();
+    openItemsModal(orderId);
+  }));
+  body.querySelectorAll('[data-split-order]').forEach(btn => btn.addEventListener('click', () => {
+    const defer = {};
+    document.querySelectorAll(`#itemsBody-${orderId} tr`).forEach(row => {
+      const inp = row.querySelector('.split-keep');
+      if (!inp) return;
+      const q = Number(inp.dataset.qty) || 0, keep = Math.min(Math.max(Number(inp.value) || 0, 0), q);
+      if (q - keep > 0) defer[row.dataset.productId] = (defer[row.dataset.productId] || 0) + (q - keep);
+    });
+    const n = Object.values(defer).reduce((s, v) => s + v, 0);
+    if (!n) { alert('كل الكميات محددة محجوزة — مفيش حاجة تتأجل. قلّل الرقم في عمود "اتحجز على الساب" للصنف اللي عايز تأجله.'); return; }
+    if (!confirm(`هتتأجل ${n} قطعة وتتنقل لطلبية مؤجَّلة منفصلة (من غير رقم طلبية). الباقي بيفضل في الطلبية دي. رصيد العميل مش بيتغيّر. تكمل؟`)) return;
+    try { splitOrder(orderId, defer); } catch (err) { alert(err.message); return; }
     refresh();
     openItemsModal(orderId);
   }));
@@ -423,6 +482,71 @@ document.addEventListener('keydown', (e) => {
 });
 
 initStorage();
+/** المتاح الفعلي من الساب جنب كل سطر: Remaining ناقص أوردراتك اللي اتسجلت بعد آخر ATP، ناقص كميات نفس الصنف في الفاتورة دي */
+function refreshAvail() {
+  const rows = [...document.querySelectorAll('#lineItems .line-item')];
+  const map = buildAtpMap(), totals = new Map();
+  rows.forEach(r => { const pid = r.querySelector('.line-product').value; totals.set(pid, (totals.get(pid) || 0) + (Number(r.querySelector('.line-qty').value) || 0)); });
+  rows.forEach(r => {
+    const span = r.querySelector('.line-avail'), pid = r.querySelector('.line-product').value, a = map.get(pid);
+    if (!a) { span.textContent = ''; r.style.outline = ''; return; }
+    const after = a.effective - totals.get(pid);
+    const color = after < 0 ? 'var(--danger)' : after <= 2 ? 'var(--warn-border, #B8862E)' : 'var(--ok, #12B886)';
+    span.innerHTML = `المتاح: <b style="color:${color}">${a.effective}</b>${a.pending ? ` <span title="الساب ${a.remaining} − أوردراتك الجديدة ${a.pending}">(الساب ${a.remaining})</span>` : ''}${a.incoming ? ` · جاي ${a.incoming}` : ''}${after < 0 ? ` <b style="color:var(--danger)">⛔ تجاوز ${-after}</b>` : ''}`;
+    r.style.outline = after < 0 ? '2px solid var(--danger)' : '';
+    r.style.borderRadius = '8px';
+  });
+}
+
+function renderAtpAge() {
+  const d = getAtpAgeDays(), box = document.getElementById('atpAgeBox');
+  box.innerHTML = d === null ? '<div class="alert">⚠ لسه ماستوردتش ملف ATP — تحذير التجاوز مش هيشتغل (من المخزون ← 🔄 تحديث ATP).</div>'
+    : d >= 2 ? `<div class="alert">⚠ آخر تحديث ATP من <b>${d}</b> يوم — حدّثه قبل ما تحجز عشان المتاح يبقى دقيق.</div>`
+    : `<p class="muted">آخر تحديث ATP: ${d === 0 ? 'النهارده' : 'من ' + d + ' يوم'}</p>`;
+}
+
+function atpOverText(over) {
+  return '⛔ تجاوز تخصيص الساب:\n' + over.map(r => `- ${r.sku || r.name}${r.fs90 ? ' 🔥FS90' : ''}: مطلوب ${r.need}، المتاح الفعلي ${r.effective}، هيبقى ${r.after}${r.incoming ? ` (الجاي ${r.incoming})` : ''}`).join('\n');
+}
+
+/** نافذة اختيار بدل confirm: تقسيم تلقائي / احفظ برضه / إلغاء */
+function askAtpChoice(msg) {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay open';
+    ov.innerHTML = `<div class="modal-box" style="max-width:520px;"><div style="white-space:pre-line; font-size:14px; margin-bottom:12px;">${esc(msg)}</div>
+      <div class="muted" style="margin-bottom:10px;">"قسّم تلقائي": المتاح الفعلي بس يتحفظ في الطلبية، والزيادة تتنقل لطلبية مؤجَّلة تحجزها لما تتوفر.</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;"><button data-c="split">✂ قسّم تلقائي</button><button class="secondary" data-c="save">احفظ برضه</button><button class="secondary" data-c="cancel">إلغاء</button></div></div>`;
+    ov.addEventListener('click', e => { const c = e.target.closest('[data-c]'); if (!c) return; ov.remove(); resolve(c.dataset.c); });
+    document.body.appendChild(ov);
+  });
+}
+
+/** الكمية اللي تتأجل لكل صنف متجاوز: الطلب ناقص المتاح (المتاح السالب = صفر) */
+function buildDeferMap(items, over) {
+  const allowed = new Map(over.map(r => [r.productId, Math.max(r.effective, 0)]));
+  const defer = {};
+  items.forEach(it => {
+    if (!allowed.has(it.productId)) return;
+    const a = allowed.get(it.productId), keep = Math.min(it.qty, a);
+    allowed.set(it.productId, a - keep);
+    if (it.qty - keep > 0) defer[it.productId] = (defer[it.productId] || 0) + (it.qty - keep);
+  });
+  return defer;
+}
+
+/** تحذير تجاوز تخصيص الساب عند الحفظ (فاتورة جديدة أو تعديل). بيرجع true لو تكمل */
+function confirmAtp(items, orderId) {
+  const res = checkSaleAgainstAtp(items, { orderId });
+  const over = res.filter(r => r.over);
+  const noAtp = res.filter(r => !r.hasAtp && r.need > 0 && getProductStock(r.productId) > 0 && r.need > getProductStock(r.productId));
+  if (!over.length && !noAtp.length) return true;
+  let msg = '';
+  if (over.length) msg += '⛔ تجاوز تخصيص الساب:\n' + over.map(r => `- ${r.sku || r.name}${r.fs90 ? ' 🔥FS90' : ''}: مطلوب ${r.need}، المتاح الفعلي ${r.effective}، هيبقى ${r.after}${r.incoming ? ` (الجاي ${r.incoming})` : ''}`).join('\n') + '\n\nالأفضل تنزّل الكمية لحد المتاح، أو تعتبر الزيادة Backorder على الجاي.';
+  if (noAtp.length) msg += `${msg ? '\n\n' : ''}أكتر من رصيد المخزون:\n` + noAtp.map(r => `- ${r.sku || r.name}: مطلوب ${r.need}، الرصيد ${getProductStock(r.productId)}`).join('\n');
+  return confirm(msg + '\n\nتحفظ برضه؟');
+}
+
 let lineCount = 0;
 
 function refresh() {
@@ -435,12 +559,15 @@ function refresh() {
   nums.forEach(([id, v]) => { const i = document.querySelector(`.ord-number-input[data-id="${id}"]`); if (i && v !== i.defaultValue) i.value = v; });
   invNums.forEach(([id, v]) => { const i = document.querySelector(`.inv-number-input[data-id="${id}"]`); if (i && v !== i.defaultValue) i.value = v; });
   updateSaleTotals();
+  refreshAvail();
+  renderAtpAge();
 }
 function refreshCore() {
   renderCustomerSelects();
   renderRepSelect();
   renderOrdersTable();
   renderRenewalAlerts();
+  renderDeferred();
 }
 
 function renderRepSelect() {
@@ -488,20 +615,13 @@ function addLineItemRow(preset = null) {
   const priceInput = div.querySelector('.line-price');
   const qtyInput = div.querySelector('.line-qty');
   const availSpan = div.querySelector('.line-avail');
-  const updateAvail = () => {
-    const status = getLatestStockStatus(productSelect.value);
-    const remaining = status && status.remaining !== null && status.remaining !== undefined ? status.remaining : null;
-    const qty = Number(qtyInput.value) || 0;
-    if (remaining === null) { availSpan.textContent = ''; return; }
-    const over = qty > remaining;
-    availSpan.innerHTML = `المتاح (الساب): <b style="color:${remaining < 0 ? 'var(--danger)' : (over ? 'var(--warn-border, #B8862E)' : 'var(--ok, #12B886)')}">${remaining}</b>${over ? ' ⚠ أكتر من المتاح' : ''}`;
-  };
+  const updateAvail = () => refreshAvail();
   const fillPrice = () => { priceInput.value = getEffectivePrice(productSelect.value) || 0; updateAvail(); updateSaleTotals(); };
   fillPrice();
   productSelect.addEventListener('change', fillPrice);
   priceInput.addEventListener('input', updateSaleTotals);
   qtyInput.addEventListener('input', () => { updateAvail(); updateSaleTotals(); });
-  div.querySelector('[data-remove]').addEventListener('click', () => { div.remove(); updateSaleTotals(); });
+  div.querySelector('[data-remove]').addEventListener('click', () => { div.remove(); refreshAvail(); updateSaleTotals(); });
 }
 
 function updateSaleTotals() {
@@ -585,7 +705,7 @@ document.getElementById('btnBulkImport').addEventListener('click', () => {
   }
 });
 
-document.getElementById('saleForm').addEventListener('submit', (e) => {
+document.getElementById('saleForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const customerId = document.getElementById('s_customer').value;
   if (!customerId) { alert('أضف عميل أولاً'); return; }
@@ -599,20 +719,24 @@ document.getElementById('saleForm').addEventListener('submit', (e) => {
   }));
   const items = Object.values(rawItems.reduce((m, it) => { const k = it.productId + '|' + it.unitPrice; (m[k] ||= { ...it, qty: 0 }).qty += it.qty; return m; }, {}));
 
-  const shortages = items
-    .map(it => ({ ...it, available: getProductStock(it.productId), product: getAll(STORAGE_KEYS.PRODUCTS).find(p => p.id === it.productId) }))
-    .filter(it => it.qty > it.available);
-
-  if (shortages.length > 0) {
-    const msg = 'الكمية المطلوبة أكبر من المتاح في المخزون:\n' +
-      shortages.map(s => `- ${s.product?.name || '?'}: مطلوب ${s.qty}، المتاح ${s.available}`).join('\n') +
-      '\n\nتكمل البيع برضه؟';
-    if (!confirm(msg)) return;
-  }
+  let deferMap = null;
+  const over = checkSaleAgainstAtp(items).filter(r => r.over);
+  if (over.length) {
+    const choice = await askAtpChoice(atpOverText(over));
+    if (choice === 'cancel') return;
+    if (choice === 'split') deferMap = buildDeferMap(items, over);
+  } else if (!confirmAtp(items, null)) return;
 
   const repId = document.getElementById('s_rep').value || null;
   const typedDiscount = document.getElementById('s_discount').value;
-  recordSale({ customerId, items, repId, discountRate: typedDiscount === '' ? null : Number(typedDiscount) });
+  const saved = recordSale({ customerId, items, repId, discountRate: typedDiscount === '' ? null : Number(typedDiscount) });
+  if (deferMap) {
+    const deferTotal = Object.values(deferMap).reduce((s, v) => s + v, 0), total = items.reduce((s, i) => s + i.qty, 0);
+    try {
+      if (deferTotal >= total) { markOrderDeferred(saved.id); alert(`الكمية كلها اتأجلت (${deferTotal} قطعة) — لسه ماتحجزتش على الساب. هتلاقيها في كارت ⏳ كميات مؤجلة.`); }
+      else { splitOrder(saved.id, deferMap); alert(`اتحفظت الطلبية بالمتاح، واتأجل ${deferTotal} قطعة — هتلاقيهم في كارت ⏳ كميات مؤجلة.`); }
+    } catch (err) { alert(err.message); }
+  }
   document.getElementById('lineItems').innerHTML = '';
   document.getElementById('s_customer').selectedIndex = 0;
   document.getElementById('s_discount').value = '';
@@ -657,7 +781,7 @@ function renderOrdersTable() {
             <input type="text" class="inv-number-input" data-id="${o.id}" value="${esc(o.invoiceNo || '')}" placeholder="رقم الفاتورة" style="width:90px; font-size:12px; padding:4px 6px;">
             <button class="secondary" data-save-invoiceno="${o.id}" style="padding:3px 8px; font-size:11px;">حفظ</button>
           </div>
-          <div>${esc(customer?.name || '(محذوف)')}</div>
+          <div>${esc(customer?.name || '(محذوف)')}${o.deferred ? ' <span class="offer-badge">⏳ مؤجّل' + (o.deferredFromInvoice ? ' من #' + esc(o.deferredFromInvoice) : '') + '</span>' : ''}</div>
           ${customer?.code ? `<div class="muted" style="display:flex; align-items:center; gap:4px; font-size:12px; margin-top:2px;"><span dir="ltr">${esc(customer.code)}</span><button class="secondary" data-copy-phone="${esc(customer.code)}" style="padding:1px 6px; font-size:11px;" title="نسخ كود العميل">📋</button></div>` : ''}
           <button class="toggle-items" data-toggle="${o.id}">📋 تفاصيل الأصناف (${o.items.length}) ↗</button>${unconfirmedBadge}
         </td>
@@ -668,7 +792,7 @@ function renderOrdersTable() {
             <button class="secondary" data-save-num="${o.id}">حفظ</button>
           </div>
         </td>
-        <td><span class="countdown ${cdClass}">${cdLabel}</span></td>
+        <td>${o.deferred ? '<span class="countdown warn">⏳ مؤجّل</span>' : `<span class="countdown ${cdClass}">${cdLabel}</span>`}</td>
         <td><select class="status-select ${o.status || 'unconfirmed'}" data-order-status="${o.id}">${statusOptions(o.status || 'unconfirmed')}</select></td>
         <td style="text-align:center;"><input type="checkbox" data-email-sent="${o.id}" ${o.sentByEmail ? 'checked' : ''} title="تم الإرسال بالإيميل"></td>
         <td>${o.total.toLocaleString()}${o.discountRate > 0 ? ` <span class="muted">(خصم ${o.discountRate}%)</span>` : ''}</td>
@@ -721,6 +845,51 @@ function renderOrdersTable() {
     refresh();
   }));
   tbody.querySelectorAll('[data-copy-phone]').forEach(btn => btn.addEventListener('click', () => copyToClipboard(btn.dataset.copyPhone)));
+}
+
+
+// ---------------- الكميات المؤجلة ----------------
+const DEF_STATE = { ready: ['✅ اتوفر', 'ok'], partial: ['🟡 اتوفر جزء', 'warn'], wait: ['⏳ لسه', 'expired'], unknown: ['مفيش ATP', 'warn'] };
+
+function renderDeferred() {
+  const list = getDeferredOrders();
+  document.getElementById('deferredCard').style.display = list.length ? '' : 'none';
+  document.getElementById('deferredBody').innerHTML = list.map(d => `
+    <div class="sync-grp" data-def="${d.order.id}">
+      <h4>${esc(d.customerName)} <span class="countdown ${DEF_STATE[d.state][1]}">${DEF_STATE[d.state][0]}</span>
+        <span class="muted" style="font-weight:400;">${d.fromInvoice ? 'من فاتورة #' + esc(d.fromInvoice) + ' — ' : ''}${new Date(d.order.date).toLocaleDateString('ar-EG')}</span></h4>
+      ${d.items.map(i => `<div class="sync-row"><div class="body"><b dir="ltr">${esc(i.sku || i.name)}</b>${i.fs90 ? ' 🔥' : ''} <span class="muted">${esc(i.name)}</span>
+        <div class="vals">مطلوب <b>${i.qty}</b> · المتاح الآن <b>${i.effective === null ? '—' : i.effective}</b>${i.incoming ? ` · جاي ${i.incoming}` : ''}</div></div>
+        <label style="font-size:12px; white-space:nowrap;">احجز الآن <input type="number" class="def-book" data-pid="${i.productId}" min="0" max="${i.qty}" value="${i.canBook}" style="width:70px;"></label></div>`).join('')}
+      <div class="row-actions" style="margin-top:8px; flex-wrap:wrap;">
+        <button class="secondary" data-def-copy="${d.order.id}">📋 نسخ للساب</button>
+        <button data-def-release="${d.order.id}">✅ تم الحجز على الساب</button>
+      </div>
+    </div>`).join('');
+  const box = document.getElementById('deferredBody');
+  const readBook = (grp) => { const m = {}; grp.querySelectorAll('.def-book').forEach(i => { m[i.dataset.pid] = (m[i.dataset.pid] || 0) + (Number(i.value) || 0); }); return m; };
+  box.querySelectorAll('[data-def-copy]').forEach(btn => btn.addEventListener('click', () => {
+    const grp = btn.closest('[data-def]'), id = btn.dataset.defCopy;
+    const order = getAll(STORAGE_KEYS.SALES_ORDERS).find(o => o.id === id), products = getAll(STORAGE_KEYS.PRODUCTS);
+    const left = readBook(grp), lines = [];
+    order.items.forEach(it => {
+      const take = Math.min(left[it.productId] || 0, it.qty);
+      if (take > 0) { left[it.productId] -= take; lines.push([products.find(p => p.id === it.productId)?.sku || '', take, 'eg01'].join('\t')); }
+    });
+    if (!lines.length) { alert('اكتب كمية أكبر من صفر لصنف واحد على الأقل'); return; }
+    copyToClipboard(lines.join('\n'));
+  }));
+  box.querySelectorAll('[data-def-release]').forEach(btn => btn.addEventListener('click', () => {
+    const grp = btn.closest('[data-def]'), id = btn.dataset.defRelease, book = readBook(grp);
+    if (!Object.values(book).some(v => v > 0)) { alert('اكتب كمية أكبر من صفر لصنف واحد على الأقل'); return; }
+    const num = (prompt('اكتب رقم الطلبية على الساب بعد ما حجزت:') || '').trim();
+    if (!num) return;
+    try {
+      const r = releaseDeferredOrder(id, num, book);
+      alert(`تم ✅ الطلبية بقت عادية برقم ${num}${r.leftover ? `\nوالباقي لسه مؤجَّل (فاتورة #${r.leftover.invoiceNo})` : ''}`);
+    } catch (err) { alert(err.message); return; }
+    refresh();
+  }));
 }
 
 document.getElementById('btnNewMonth').addEventListener('click', () => {
@@ -776,11 +945,8 @@ function copyOrderForWhatsapp(orderId) {
     const hasOffer = i.listPriceAtSale && i.listPriceAtSale > i.unitPrice;
     const full = clean(i.product?.name || '');
     const sepAt = full.indexOf(' — ');
-    const code = clean(i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : ''));
-    // الوصف: من الاسم بعد " — "، وإلا من حقل الوصف. ومش بيتكرر الكود أبداً لو مفيش وصف حقيقي
-    let desc = sepAt > -1 ? full.slice(sepAt + 3) : clean(i.product?.description || '');
-    if (!desc || desc.toLowerCase() === code.toLowerCase()) desc = clean(i.product?.description || '');
-    if (desc.toLowerCase() === code.toLowerCase()) desc = '';
+    const code = i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : '');
+    const desc = sepAt > -1 ? full.slice(sepAt + 3) : full;
     rows.push([
       idx + 1, text(code), text(desc), i.qty,
       num(hasOffer ? i.listPriceAtSale : i.unitPrice),
@@ -876,6 +1042,85 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   };
   reader.readAsText(file);
 });
+
+
+// ---------------- مزامنة مع تقرير الساب ----------------
+const SYNC_KINDS = {
+  missing_order: '➕ أوردر في الساب مش عندك', link: '🔗 ربط برقم الساب', item_add: '➕ صنف ناقص عندك', item_remove: '➖ صنف زيادة عندك',
+  qty: '🔢 كمية مختلفة', price: '💰 سعر مختلف', status: '🚚 حالة تسليم مختلفة',
+  customer: '👤 عميل مختلف', customer_unknown: '⚠ عميل مش مسجل', local_only: '❓ عندك ومش في الساب', no_number: '🏷 فاتورة من غير رقم طلبية',
+};
+let syncDiffs = [];
+document.getElementById('syncDelDate').value = new Date().toISOString().slice(0, 10);
+
+function syncSelectedCount() {
+  const n = document.querySelectorAll('#syncResult .sync-chk:checked').length;
+  const b = document.getElementById('btnSyncApply');
+  if (b) { b.textContent = `✅ طبّق المحدد (${n})`; b.disabled = n === 0; }
+}
+
+function runSyncCompare() {
+  const text = document.getElementById('sapSyncText').value;
+  const box = document.getElementById('syncResult');
+  if (!text.trim()) { alert('الصق تقرير الساب الأول'); return; }
+  const r = previewSapSync(text, { vatRate: Number(document.getElementById('syncVat').value) || 0, priceTolerancePct: Number(document.getElementById('syncTol').value) || 0 });
+  syncDiffs = r.diffs;
+  if (!r.counts.sapDocs) { box.innerHTML = '<p class="muted">⚠ ملقيتش أوردرات في اللي الصقته. تأكد من ترتيب الأعمدة وإن أول عمود تاريخ (YYYY-MM-DD).</p>'; return; }
+  const actionable = syncDiffs.filter(d => d.canApply);
+  const kinds = [...new Set(actionable.map(d => d.kind))];
+  const groups = new Map();
+  syncDiffs.forEach(d => { const k = `${d.doc}|${d.orderId || ''}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(d); });
+  box.innerHTML = `
+    <p><b>أوردرات في التقرير:</b> ${r.counts.sapDocs} | <b>مطابق تماماً:</b> ${r.counts.matchedClean} | <b>فيه فروقات:</b> ${r.counts.withDiffs}${r.badRows ? ` | <span style="color:var(--danger)">${r.badRows} سطر اتخطّى (تاريخ أو كود ناقص)</span>` : ''}</p>
+    <p class="muted">نطاق التقرير: ${r.range.from} → ${r.range.to}. الأصناف المسلَّمة بتاخد تاريخ التسليم اللي فوق. الفروقات بالسعر بتتقارن صافي بعد الخصم وقبل الضريبة.</p>
+    ${syncDiffs.length ? `
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+      <button type="button" class="secondary" id="syncAll">تحديد كل القابل للتطبيق</button>
+      <button type="button" class="secondary" id="syncNone">إلغاء التحديد</button>
+      ${kinds.map(k => `<button type="button" class="secondary" data-sel-kind="${k}">حدّد: ${SYNC_KINDS[k]}</button>`).join('')}
+    </div>
+    ${[...groups.values()].map(list => `
+      <div class="sync-grp">
+        <h4>${esc(list[0].kind === 'no_number' ? list[0].doc : 'ساب ' + list[0].doc)} — ${esc(list[0].customerName || '')}</h4>
+        ${list.map(d => `
+          <div class="sync-row">
+            ${d.canApply ? `<input type="checkbox" class="sync-chk" data-id="${d.id}">` : '<span style="width:16px; flex:none;"></span>'}
+            <div class="body">
+              <span class="sync-tag ${d.canApply ? '' : 'info'}">${SYNC_KINDS[d.kind] || esc(d.label)}</span>
+              ${d.sku ? `<b dir="ltr">${esc(d.sku)}</b> ${esc(d.desc || '')}` : ''}
+              <div class="vals">عندك: <b>${esc(d.localText)}</b> ← الساب: <b>${esc(d.sapText)}</b></div>
+              ${d.note ? `<div class="muted" style="font-size:12px;">${esc(d.note)}</div>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>`).join('')}
+    ${actionable.length ? '<button type="button" id="btnSyncApply" disabled>✅ طبّق المحدد (0)</button>' : ''}
+    ` : '<p class="all-clear">✅ كل الأوردرات مطابقة للساب.</p>'}`;
+  box.querySelectorAll('.sync-chk').forEach(c => c.addEventListener('change', syncSelectedCount));
+  const setAll = (fn) => { box.querySelectorAll('.sync-chk').forEach(c => { c.checked = fn(syncDiffs.find(d => d.id === c.dataset.id)); }); syncSelectedCount(); };
+  const all = document.getElementById('syncAll'); if (all) all.addEventListener('click', () => setAll(() => true));
+  const none = document.getElementById('syncNone'); if (none) none.addEventListener('click', () => setAll(() => false));
+  box.querySelectorAll('[data-sel-kind]').forEach(b => b.addEventListener('click', () => { box.querySelectorAll('.sync-chk').forEach(c => { if (syncDiffs.find(d => d.id === c.dataset.id).kind === b.dataset.selKind) c.checked = true; }); syncSelectedCount(); }));
+  const apply = document.getElementById('btnSyncApply');
+  if (apply) apply.addEventListener('click', () => {
+    const ids = new Set([...box.querySelectorAll('.sync-chk:checked')].map(c => c.dataset.id));
+    const chosen = syncDiffs.filter(d => ids.has(d.id));
+    if (!chosen.length) return;
+    const delivering = chosen.some(d => d.kind === 'status' || d.kind === 'item_add' || d.kind === 'missing_order');
+    if (!confirm(`هتطبّق ${chosen.length} تعديل. هننزّل نسخة احتياطية الأول تلقائياً.${delivering ? `\nالأصناف اللي هتتعلّم Delivered هتاخد تاريخ ${document.getElementById('syncDelDate').value}.` : ''}\nتكمل؟`)) return;
+    downloadBackup();
+    const res = applySapSync(chosen, { deliveryDate: document.getElementById('syncDelDate').value, vatRate: Number(document.getElementById('syncVat').value) || 0 });
+    let msg = `تم ✅\nتعديل ${res.applied} فرق على ${res.updatedOrders} فاتورة`;
+    if (res.created) msg += `\nأوردرات اتضافت: ${res.created}`;
+    if (res.linked) msg += `\nأرقام اتربطت: ${res.linked}`;
+    if (res.autoCreatedProducts.length) msg += `\nℹ أصناف جديدة اتسجلت مؤرشفة (مش في الكتالوج): ${res.autoCreatedProducts.join('، ')}`;
+    if (res.skipped.length) msg += `\n⚠ اتخطّى:\n${res.skipped.join('\n')}`;
+    alert(msg);
+    refresh();
+    runSyncCompare();
+  });
+  syncSelectedCount();
+}
+document.getElementById('btnSyncCompare').addEventListener('click', runSyncCompare);
 
 addLineItemRow();
 refresh();

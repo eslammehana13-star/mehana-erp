@@ -39,6 +39,8 @@
   .tabs button.active { background: var(--primary); color: #fff; }
   .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
   .muted { color: var(--muted); font-size: 13px; }
+  .hide-bal .col-bal { display: none; }
+  .fs90 { background: #F2E1DC; color: var(--danger); font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 8px; }
   nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
   nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
   nav a.active { background: var(--primary); color: #fff; }
@@ -63,6 +65,11 @@
 <h1>📦 إدارة المخزون</h1>
 
 <div id="alertBox"></div>
+
+<div class="card" id="atpCard" style="display:none;">
+  <h2>🚨 تجاوزات ATP</h2>
+  <div id="atpBody"></div>
+</div>
 
 <div class="card">
   <h2>🗂 شجرة تصنيف المنتجات (القسم ← الفاميلي)</h2>
@@ -189,14 +196,15 @@
     <h2>الأصناف والأرصدة الحالية</h2>
     <div>
       <label style="font-size:13px; margin-inline-end:8px;"><input type="checkbox" id="showArchived" style="flex:none; width:auto;"> عرض المنتجات المؤرشفة</label>
+      <label style="font-size:13px; margin-inline-end:8px;" title="رصيد حركات البرنامج فقط، مش رصيد الساب (غالباً سالب)"><input type="checkbox" id="showBalance" style="flex:none; width:auto;"> عرض الرصيد الحالي (حركات البرنامج)</label>
       <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
       <input type="file" id="importFile" accept=".json" style="display:none">
       <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
     </div>
   </div>
-  <table>
+  <table id="mainTable" class="hide-bal">
     <thead>
-      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th>الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الجاية</th><th>الطلبيات المحجوزة</th><th>المتاح (Remaining)</th><th>آخر تحديث</th><th>إجراءات</th></tr>
+      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th class="col-bal">الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الجاية</th><th>الطلبيات المحجوزة</th><th>المتاح (Remaining)</th><th>آخر تحديث</th><th>إجراءات</th></tr>
     </thead>
     <tbody id="productsTable"></tbody>
   </table>
@@ -206,6 +214,7 @@
 <script type="module">
 import {
   esc, inPeriod, getReportOrders, importProducts, isProductHidden, getActiveProducts, syncCatalogToList,
+  getAtpWatchlist,
   DIVISIONS, productDivision, productFamily, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog, clearHistoricalImports,
   initStorage, addProduct, getAll, STORAGE_KEYS,
   getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
@@ -218,6 +227,7 @@ initStorage();
 
 function refresh() {
   renderAlerts();
+  renderAtpCard();
   renderProductsTable();
   renderProductSelect();
   renderClassification();
@@ -289,6 +299,20 @@ document.getElementById('btnWipeHistorical').addEventListener('click', () => {
   alert(`تم المسح ✅\nطلبيات: ${r.removedOrders}\nحركات كشف: ${r.removedAdj}\nمنتجات تلقائية: ${r.removedProd}\nأرصدة اتصفّرت: ${r.resetBalances}`);
 });
 
+function renderAtpCard() {
+  const w = getAtpWatchlist();
+  const card = document.getElementById('atpCard');
+  if (!w.productsWithAtp) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const tag = (r) => `${r.fs90 ? '<span class="fs90">FS90</span> ' : ''}<b dir="ltr">${esc(r.sku || r.name)}</b>`;
+  const age = w.ageDays >= 2 ? `<div class="alert">⚠ آخر تحديث ATP من <b>${w.ageDays}</b> يوم — حدّثه (🔄 تحديث ATP تحت) قبل ما تعتمد على الأرقام.</div>` : `<p class="muted">آخر تحديث ATP: ${w.ageDays === 0 ? 'النهارده' : 'من ' + w.ageDays + ' يوم'}</p>`;
+  const neg = w.negatives.length ? `<table><thead><tr><th>الصنف</th><th>الساب (Remaining)</th><th>المتاح الفعلي</th><th>الجاي</th><th>فواتير شغالة فيها الصنف</th></tr></thead><tbody>${w.negatives.map(r => `<tr>
+      <td>${tag(r)}</td><td class="${r.remaining < 0 ? 'low' : ''}">${r.remaining}</td><td class="low">${r.effective}${r.pending ? ` <span class="muted">(−${r.pending} أوردراتك الجديدة)</span>` : ''}</td><td>${r.incoming || 0}</td>
+      <td style="font-size:12.5px;">${r.orders.map(o => `${esc(o.customerName)} — ${o.qty} قطعة${o.orderNumber ? ' (طلبية ' + esc(o.orderNumber) + ')' : ` (فاتورة #${esc(o.invoiceNo || '-')})`}`).join('<br>') || '<span class="muted">مفيش فاتورة شغالة (التجاوز من قبل الملف)</span>'}</td></tr>`).join('')}</tbody></table>` : '<p class="all-clear">✅ مفيش أصناف في تجاوز.</p>';
+  const watch = w.watch.length ? `<p class="muted" style="margin-top:10px;"><b>قريب من النفاد (المتاح ≤ 2):</b> ${w.watch.map(r => `${tag(r)} (${r.effective})`).join('، ')}</p>` : '';
+  document.getElementById('atpBody').innerHTML = age + neg + watch;
+}
+
 function renderAlerts() {
   const alerts = getLowStockAlerts();
   const box = document.getElementById('alertBox');
@@ -326,7 +350,7 @@ function renderProductsTable() {
         <td><input type="text" class="e-sku" value="${esc(p.sku || '')}"></td>
         <td><input type="text" class="e-category" value="${esc(p.category || '')}"></td>
         <td><input type="text" class="e-unit" value="${esc(p.unit)}"></td>
-        <td class="${low ? 'low' : ''}">${stock}</td>
+        <td class="col-bal ${low ? 'low' : ''}">${stock}</td>
         <td><input type="number" class="e-reorder" value="${p.reorderLevel}" style="width:70px;"></td>
         <td>
           <input type="number" class="e-price" value="${p.basePrice}" style="width:75px;" placeholder="السعر الأساسي" title="السعر الأساسي"><br>
@@ -354,7 +378,7 @@ function renderProductsTable() {
         <td>${esc(p.sku || '-')}</td>
         <td>${esc(p.category || '-')}</td>
         <td>${esc(p.unit)}</td>
-        <td class="${low ? 'low' : ''}">${stock}</td>
+        <td class="col-bal ${low ? 'low' : ''}">${stock}</td>
         <td>${p.reorderLevel}</td>
         <td>${priceCell}</td>
         <td>${atpDisplay}</td>
@@ -510,6 +534,7 @@ document.getElementById('btnBulkProducts').addEventListener('click', () => {
 });
 
 document.getElementById('showArchived').addEventListener('change', renderProductsTable);
+document.getElementById('showBalance').addEventListener('change', (e) => document.getElementById('mainTable').classList.toggle('hide-bal', !e.target.checked));
 document.getElementById('btnSyncCatalog').addEventListener('click', () => {
   const box = document.getElementById('syncList');
   if (!box.value.trim()) { alert('الصق قايمة الأسعار الحالية الأول'); return; }
