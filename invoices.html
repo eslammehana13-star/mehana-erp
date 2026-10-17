@@ -109,6 +109,7 @@
   <div id="atpAgeBox"></div>
   <form id="saleForm">
     <div style="display:flex; gap:6px; width:100%; align-items:center;">
+      <input type="search" id="s_customerSearch" placeholder="🔍 دور باسم أو كود العميل..." autocomplete="off" style="flex:0 1 220px; min-width:140px;">
       <select id="s_customer" required style="flex:1;"></select>
       <button type="button" class="secondary" id="btnQuickCustomer" style="flex:none;">+ عميل جديد</button>
     </div>
@@ -145,12 +146,10 @@
   <div class="toolbar">
     <h2>آخر الفواتير</h2>
     <div style="display:flex; gap:6px; flex-wrap:wrap;">
-      <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
-      <input type="file" id="importFile" accept=".json" style="display:none">
-      <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
       <button class="danger" id="btnNewMonth">📁 بدء شهر جديد</button>
     </div>
   </div>
+  <div id="ordFilters" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;"></div>
   <input type="text" id="orderSearch" placeholder="🔍 دور باسم عميل أو رقم طلبية (البحث يشمل الأرشيف)..." style="width:100%; margin-bottom:8px;">
   <table>
     <thead><tr><th>العميل</th><th>التاريخ</th><th>رقم الطلبية</th><th>العد التنازلي</th><th>الحالة</th><th>إيميل</th><th>الإجمالي</th><th>إجراءات</th></tr></thead>
@@ -594,7 +593,9 @@ function renderRenewalAlerts() {
 
 function renderCustomerSelects() {
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
-  document.getElementById('s_customer').innerHTML = customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.code ? " (" + esc(c.code) + ")" : ""}</option>`).join('');
+  const q = (document.getElementById('s_customerSearch').value || '').trim().toLowerCase();
+  const list = q ? customers.filter(c => `${c.name} ${c.code || ''}`.toLowerCase().includes(q)) : customers;
+  document.getElementById('s_customer').innerHTML = list.map(c => `<option value="${c.id}">${esc(c.name)}${c.code ? " (" + esc(c.code) + ")" : ""}</option>`).join('') || '<option value="">مفيش عميل مطابق</option>';
 }
 
 function addLineItemRow(preset = null) {
@@ -664,6 +665,7 @@ document.getElementById('btnSaveQuickCustomer').addEventListener('click', () => 
     category: document.getElementById('qc_category').value.trim() || 'عام',
     discountRate: Number(document.getElementById('qc_discount').value) || 0,
   });
+  document.getElementById('s_customerSearch').value = '';
   document.getElementById('qc_name').value = '';
   document.getElementById('qc_category').value = 'عام';
   document.getElementById('qc_discount').value = '0';
@@ -674,6 +676,13 @@ document.getElementById('btnSaveQuickCustomer').addEventListener('click', () => 
 });
 
 document.getElementById('s_customer').addEventListener('change', updateSaleTotals);
+document.getElementById('s_customerSearch').addEventListener('input', () => {
+  const sel = document.getElementById('s_customer'), prev = sel.value;
+  renderCustomerSelects();
+  if (prev && Array.from(sel.options).some(o => o.value === prev)) sel.value = prev;
+  updateSaleTotals(); refreshAvail();
+});
+document.getElementById('s_customerSearch').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); }); // متحفظش الفاتورة بالغلط
 document.getElementById('s_discount').addEventListener('input', updateSaleTotals);
 
 document.getElementById('addLine').addEventListener('click', () => addLineItemRow());
@@ -738,11 +747,20 @@ document.getElementById('saleForm').addEventListener('submit', async (e) => {
     } catch (err) { alert(err.message); }
   }
   document.getElementById('lineItems').innerHTML = '';
+  document.getElementById('s_customerSearch').value = '';
+  renderCustomerSelects();
   document.getElementById('s_customer').selectedIndex = 0;
   document.getElementById('s_discount').value = '';
   refresh();
 });
 
+let ordFilter = 'all';
+document.getElementById('ordFilters').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-f]');
+  if (!b) return;
+  ordFilter = b.dataset.f;
+  renderOrdersTable();
+});
 document.getElementById('orderSearch').addEventListener('input', renderOrdersTable);
 
 function renderOrdersTable() {
@@ -754,9 +772,18 @@ function renderOrdersTable() {
       const cName = (allCustomers.find(c => c.id === o.customerId)?.name || '').toLowerCase();
       return cName.includes(query) || (o.orderNumber || '').toLowerCase().includes(query);
     });
-  } else {
-    orders = orders.slice(0, 60);
   }
+  const renewalIds = new Set(getOrdersNeedingRenewal().map(o => o.id));
+  const FILTERS = {
+    all: () => true,
+    unconfirmed: o => (o.status || 'unconfirmed') === 'unconfirmed' || o.items.some(it => (it.status || 'unconfirmed') === 'unconfirmed'),
+    renewal: o => renewalIds.has(o.id),
+    deferred: o => !!o.deferred,
+  };
+  const FLABEL = { all: 'الكل', unconfirmed: '⚠ غير مؤكد', renewal: '⏳ محتاج تجديد', deferred: '⏳ مؤجّل' };
+  document.getElementById('ordFilters').innerHTML = Object.keys(FILTERS).map(k => `<button type="button" class="secondary fbtn ${ordFilter === k ? 'on' : ''}" data-f="${k}">${FLABEL[k]} (${orders.filter(FILTERS[k]).length})</button>`).join('');
+  orders = orders.filter(FILTERS[ordFilter]);
+  if (!query) orders = orders.slice(0, 60);
   const tbody = document.getElementById('ordersTable');
   document.getElementById('ordersEmpty').style.display = orders.length ? 'none' : 'block';
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
@@ -799,6 +826,7 @@ function renderOrdersTable() {
         <td class="row-actions">
           <button class="secondary" data-wa="${o.id}" title="يتلصق في إكسيل والمعادلات شغالة، الصقه في A1">نسخ واتساب / إكسيل</button>
           <button class="secondary" data-sap="${o.id}">نسخ للساب</button>
+          <button class="secondary" data-dup="${o.id}" title="بيملا فاتورة جديدة بنفس العميل والأصناف (بأسعار اللست الحالية) من غير ما يحفظ">تكرار</button>
           <button class="danger" data-void="${o.id}">إلغاء الطلبية</button>
         </td>
       </tr>`;
@@ -828,6 +856,7 @@ function renderOrdersTable() {
   }));
   tbody.querySelectorAll('[data-wa]').forEach(btn => btn.addEventListener('click', () => copyOrderForWhatsapp(btn.dataset.wa)));
   tbody.querySelectorAll('[data-sap]').forEach(btn => btn.addEventListener('click', () => copyOrderForSap(btn.dataset.sap)));
+  tbody.querySelectorAll('[data-dup]').forEach(btn => btn.addEventListener('click', () => duplicateOrder(btn.dataset.dup)));
   tbody.querySelectorAll('[data-save-num]').forEach(btn => btn.addEventListener('click', () => {
     const id = btn.dataset.saveNum;
     const input = tbody.querySelector(`.ord-number-input[data-id="${id}"]`);
@@ -847,6 +876,27 @@ function renderOrdersTable() {
   tbody.querySelectorAll('[data-copy-phone]').forEach(btn => btn.addEventListener('click', () => copyToClipboard(btn.dataset.copyPhone)));
 }
 
+
+/** تكرار فاتورة: بيملا فورم الفاتورة الجديدة بنفس العميل والأصناف بأسعار اللست الحالية وخصم العميل الحالي، ومبيحفظش — راجع واحفظ */
+function duplicateOrder(orderId) {
+  const o = getAll(STORAGE_KEYS.SALES_ORDERS).find(x => x.id === orderId);
+  if (!o) return;
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map(p => [p.id, p]));
+  const usable = o.items.filter(it => { const p = pMap.get(it.productId); return p && !isProductHidden(p); });
+  if (!usable.length) { alert('كل أصناف الفاتورة دي متوقفة أو مؤرشفة — مينفعش تتكرر.'); return; }
+  document.getElementById('s_customerSearch').value = '';
+  renderCustomerSelects();
+  document.getElementById('s_customer').value = o.customerId;
+  document.getElementById('s_rep').value = o.repId || '';
+  document.getElementById('s_discount').value = '';
+  document.getElementById('lineItems').innerHTML = '';
+  usable.forEach(it => addLineItemRow({ productId: it.productId, qty: it.qty }));
+  updateSaleTotals();
+  refreshAvail();
+  const skipped = o.items.length - usable.length;
+  alert(`اتملت فاتورة جديدة بنفس الأصناف ✅ (بأسعار اللست الحالية وخصم العميل الحالي) — راجعها واضغط حفظ.${skipped ? `\n⚠ ${skipped} صنف اتخطّى لأنه متوقف/مؤرشف.` : ''}`);
+  document.getElementById('saleForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 // ---------------- الكميات المؤجلة ----------------
 const DEF_STATE = { ready: ['✅ اتوفر', 'ok'], partial: ['🟡 اتوفر جزء', 'warn'], wait: ['⏳ لسه', 'expired'], unknown: ['مفيش ATP', 'warn'] };
@@ -1027,21 +1077,6 @@ document.getElementById('btnReconcile').addEventListener('click', () => {
   `;
 });
 
-document.getElementById('btnExport').addEventListener('click', downloadBackup);
-document.getElementById('btnImport').addEventListener('click', () => document.getElementById('importFile').click());
-document.getElementById('importFile').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
-    } catch {
-      alert('ملف غير صالح');
-    }
-  };
-  reader.readAsText(file);
-});
 
 
 // ---------------- مزامنة مع تقرير الساب ----------------

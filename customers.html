@@ -144,9 +144,6 @@
   <div class="toolbar">
     <h2>العملاء وأرصدتهم</h2>
     <div>
-      <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
-      <input type="file" id="importFile" accept=".json" style="display:none">
-      <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
     </div>
   </div>
   <input type="text" id="customerSearch" placeholder="🔍 دور باسم أو كود عميل..." style="width:100%; margin-bottom:8px;">
@@ -426,21 +423,6 @@ async function copyToClipboard(text) {
   }
 }
 
-document.getElementById('btnExport').addEventListener('click', downloadBackup);
-document.getElementById('btnImport').addEventListener('click', () => document.getElementById('importFile').click());
-document.getElementById('importFile').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
-    } catch {
-      alert('ملف غير صالح');
-    }
-  };
-  reader.readAsText(file);
-});
 
 document.getElementById('btnBulkCustomers').addEventListener('click', () => {
   const box = document.getElementById('bulkCustomers');

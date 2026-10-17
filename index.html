@@ -61,6 +61,7 @@
 </div>
 
 <div id="alertsBox"></div>
+<div id="alertsPanels"></div>
 
 <div class="card" id="deferredCard" style="display:none;">
   <h2>⏳ كميات مؤجلة</h2>
@@ -129,70 +130,93 @@ function renderKpis() {
   document.getElementById('kpiScore').textContent = scorecard.kpis.length ? `${scorecard.overallScore}%` : '-';
 }
 
+const TODAY = [];
+function addPanel(id, icon, label, count, sev, html) {
+  TODAY.push({ id, icon, label, count, sev });
+  const d = document.createElement('div');
+  d.id = id; d.className = 'card today-panel'; d.style.display = 'none'; d.innerHTML = html;
+  document.getElementById('alertsPanels').appendChild(d);
+}
+
 function renderAlerts() {
-  const box = document.getElementById('alertsBox');
-  const sections = [];
+  document.getElementById('alertsPanels').innerHTML = '';
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
 
   const overCredit = getOverCreditLimitCustomers();
   if (overCredit.length) {
-    sections.push(`<div class="alert danger-alert"><strong>🚫 عملاء تعدّوا حد الائتمان (${overCredit.length}):</strong>
-      <ul>${overCredit.map(c => `<li>${esc(c.name)} — ${c.balance.toLocaleString()} / حد ${c.creditLimit.toLocaleString()}</li>`).join('')}</ul></div>`);
+    addPanel('p_credit', '🚫', 'تعدّوا حد الائتمان', overCredit.length, 'sev-bad',
+      `<h2>🚫 عملاء تعدّوا حد الائتمان (${overCredit.length})</h2><ul>${overCredit.map(c => `<li>${esc(c.name)} — ${c.balance.toLocaleString()} / حد ${c.creditLimit.toLocaleString()}</li>`).join('')}</ul>`);
   }
 
   const lowStock = getLowStockAlerts();
   if (lowStock.length) {
-    sections.push(`<div class="alert"><strong>⚠ نواقص مخزون (${lowStock.length}):</strong>
-      <ul>${lowStock.map(p => `<li>${esc(p.name)} — الرصيد: ${p.currentStock} (حد الطلب: ${p.reorderLevel})</li>`).join('')}</ul></div>`);
+    addPanel('p_low', '⚠', 'نواقص مخزون', lowStock.length, 'sev-warn',
+      `<h2>⚠ نواقص مخزون (${lowStock.length})</h2><ul>${lowStock.map(p => `<li>${esc(p.name)} — الرصيد: ${p.currentStock} (حد الطلب: ${p.reorderLevel})</li>`).join('')}</ul>`);
   }
 
   const checksDue = getChecksDueSoon(7);
   if (checksDue.length) {
-    const customers = getAll(STORAGE_KEYS.CUSTOMERS);
-    sections.push(`<div class="alert"><strong>🧾 شيكات مستحقة خلال 7 أيام (${checksDue.length}):</strong>
-      <ul>${checksDue.map(c => `<li>${esc(customers.find(cc => cc.id === c.customerId)?.name || '?')} — ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul></div>`);
+    addPanel('p_checks', '🧾', 'شيكات مستحقة (7 أيام)', checksDue.length, 'sev-warn',
+      `<h2>🧾 شيكات مستحقة خلال 7 أيام (${checksDue.length})</h2><ul>${checksDue.map(c => `<li>${esc(customers.find(cc => cc.id === c.customerId)?.name || '?')} — ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul>`);
   }
 
   const needingRenewal = getOrdersNeedingRenewal();
   if (needingRenewal.length) {
-    const customers = getAll(STORAGE_KEYS.CUSTOMERS);
-    sections.push(`<div class="alert"><strong>⏳ طلبيات محتاجة تجديد حجز على الساب (${needingRenewal.length}):</strong>
-      <ul>${needingRenewal.map(o => `<li>${esc(customers.find(c => c.id === o.customerId)?.name || '?')} — ${o.daysLeft <= 0 ? 'فات المعاد!' : `باقي ${o.daysLeft} يوم`}</li>`).join('')}</ul></div>`);
+    addPanel('p_renew', '⏳', 'تجديد حجز على الساب', needingRenewal.length, needingRenewal.some(o => o.daysLeft <= 0) ? 'sev-bad' : 'sev-warn',
+      `<h2>⏳ طلبيات محتاجة تجديد حجز على الساب (${needingRenewal.length})</h2><ul>${needingRenewal.map(o => `<li>${esc(customers.find(c => c.id === o.customerId)?.name || '?')} — ${o.daysLeft <= 0 ? 'فات المعاد!' : `باقي ${o.daysLeft} يوم`}</li>`).join('')}</ul><p class="muted"><a href="invoices.html">فتح الفواتير ←</a></p>`);
   }
 
   const daysSinceBackup = getDaysSinceLastBackup();
   if (daysSinceBackup === null || daysSinceBackup >= 7) {
     const msg = daysSinceBackup === null ? 'لسه ماعملتش أي نسخة احتياطية خالص' : `آخر نسخة احتياطية من ${daysSinceBackup} يوم`;
-    sections.push(`<div class="alert"><strong>💾 وقت النسخة الاحتياطية:</strong> ${msg} — روح لأي صفحة واضغط "⬇ نسخة احتياطية".</div>`);
+    addPanel('p_backup', '💾', 'نسخة احتياطية', daysSinceBackup === null ? '!' : daysSinceBackup, 'sev-info',
+      `<h2>💾 وقت النسخة الاحتياطية</h2><p>${msg} — اضغط "⬇ نسخة احتياطية" في الشريط اللي فوق.</p>`);
   }
-
-  box.innerHTML = sections.length ? sections.join('') : '<p class="all-clear">✅ مفيش تنبيهات دلوقتي — كل حاجة تمام.</p>';
 }
 
 function renderAtp() {
   const w = getAtpWatchlist();
   const card = document.getElementById('atpCard');
-  if (!w.productsWithAtp || (!w.negatives.length && !w.watch.length && !(w.ageDays >= 2))) { card.style.display = 'none'; return; }
-  card.style.display = '';
+  card.style.display = 'none';
+  if (!w.productsWithAtp || (!w.negatives.length && !w.watch.length && !(w.ageDays >= 2))) return;
   const tag = (r) => `${r.fs90 ? '🔥 ' : ''}<b dir="ltr">${esc(r.sku || r.name)}</b>`;
   document.getElementById('atpBody').innerHTML =
     (w.ageDays >= 2 ? `<p class="muted" style="color:var(--danger);">⚠ آخر تحديث ATP من ${w.ageDays} يوم</p>` : '')
     + (w.negatives.length ? `<ul style="margin:0; padding-inline-start:18px; font-size:13px;">${w.negatives.map(r => `<li>${tag(r)} — المتاح الفعلي <b style="color:var(--danger)">${r.effective}</b> (الجاي ${r.incoming || 0})${r.orders.length ? ': ' + r.orders.map(o => `${esc(o.customerName)} (${o.qty})`).join('، ') : ''}</li>`).join('')}</ul>` : '')
     + (w.watch.length ? `<p class="muted">قريب من النفاد: ${w.watch.map(r => `${tag(r)} (${r.effective})`).join('، ')}</p>` : '');
+  const n = w.negatives.length + w.watch.length;
+  TODAY.push({ id: 'atpCard', icon: '🚨', label: 'تجاوزات ATP', count: n || '!', sev: w.negatives.length ? 'sev-bad' : 'sev-warn' });
 }
 
 function renderDeferred() {
   const list = getDeferredOrders();
-  document.getElementById('deferredCard').style.display = list.length ? '' : 'none';
+  document.getElementById('deferredCard').style.display = 'none';
+  if (!list.length) return;
   const lab = { ready: '✅ اتوفر', partial: '🟡 اتوفر جزء', wait: '⏳ لسه', unknown: '' };
   document.getElementById('deferredBody').innerHTML = `<ul style="margin:0; padding-inline-start:18px; font-size:13px;">${list.map(d => `<li><b>${esc(d.customerName)}</b> ${lab[d.state]} — ${d.items.map(i => `<span dir="ltr">${esc(i.sku || i.name)}</span> ×${i.qty}${i.state === 'partial' ? ` (متاح ${i.canBook})` : ''}`).join('، ')}</li>`).join('')}</ul>`;
+  TODAY.push({ id: 'deferredCard', icon: '⏳', label: 'كميات مؤجلة', count: list.length, sev: list.some(d => d.state === 'ready' || d.state === 'partial') ? 'sev-info' : 'sev-warn' });
 }
 
 function renderDealerBehind() {
   const rows = getDealerTargetsOverview(new Date().getFullYear()).filter((x) => x.progress.behindSlab1)
     .map((x) => ({ name: x.customer.name, ach: x.progress.achieved.total, ytd: x.progress.slabs[0].ytdTarget, req: x.progress.slabs[0].requiredPerMonth }))
     .sort((a, b) => (a.ach - a.ytd) - (b.ach - b.ytd)).slice(0, 8);
-  document.getElementById('dealerBehindCard').style.display = rows.length ? 'block' : 'none';
+  document.getElementById('dealerBehindCard').style.display = 'none';
   document.getElementById('dealerBehind').innerHTML = rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.ach.toLocaleString()}</td><td>${r.ytd.toLocaleString()}</td><td style="color:var(--danger);font-weight:700;">${(r.ach - r.ytd).toLocaleString()}</td><td>${r.req === null ? '-' : r.req.toLocaleString()}</td></tr>`).join('');
+  if (rows.length) TODAY.push({ id: 'dealerBehindCard', icon: '🎯', label: 'تجار متأخرين عن Slab 1', count: rows.length, sev: 'sev-warn' });
+}
+
+function renderTiles() {
+  const box = document.getElementById('alertsBox');
+  if (!TODAY.length) { box.innerHTML = '<p class="all-clear">✅ مفيش تنبيهات دلوقتي — كل حاجة تمام.</p>'; return; }
+  box.innerHTML = `<h2>📌 المطلوب النهارده</h2><div class="today-tiles">${TODAY.map(t => `<button type="button" class="today-tile ${t.sev}" data-panel="${t.id}"><span class="n">${t.count}</span><span>${t.icon} ${esc(t.label)}</span></button>`).join('')}</div>`;
+  box.querySelectorAll('[data-panel]').forEach(b => b.addEventListener('click', () => {
+    const target = document.getElementById(b.dataset.panel);
+    const wasOpen = target.style.display !== 'none';
+    TODAY.forEach(t => { document.getElementById(t.id).style.display = 'none'; });
+    box.querySelectorAll('.today-tile').forEach(x => x.classList.remove('open'));
+    if (!wasOpen) { target.style.display = ''; b.classList.add('open'); }
+  }));
 }
 
 function renderTopLists() {
@@ -276,10 +300,12 @@ function exportMonthlyReport() {
 document.getElementById('btnMonthlyReport').addEventListener('click', exportMonthlyReport);
 
 renderKpis();
+TODAY.length = 0;
 renderAlerts();
 renderAtp();
 renderDeferred();
 renderDealerBehind();
+renderTiles();
 renderTopLists();
 </script>
 </body>

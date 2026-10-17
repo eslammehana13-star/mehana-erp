@@ -31,3 +31,41 @@ tbody tr{transition:background .15s}tbody tr:hover{background:#FFF8EA}
 .all-clear{background:#E6FAF2;padding:12px;border-radius:14px;font-weight:700}
 .debt{color:var(--danger)}.credit{color:var(--ok)}
 @media (prefers-reduced-motion:no-preference){.card,.kpi{animation:pop .4s ease both}@keyframes pop{from{opacity:0;transform:translateY(10px)}}}
+
+/* ===== إشعارات ===== */
+#toastBox{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:3000;display:flex;flex-direction:column;gap:8px;align-items:center;max-width:min(560px,94vw);pointer-events:none}
+.toast{pointer-events:auto;display:flex;gap:10px;align-items:flex-start;background:#2B2A4C;color:#fff;border-radius:14px;padding:10px 14px;box-shadow:0 10px 28px rgba(0,0,0,.28);font-size:14px;max-height:50vh;overflow:auto;transition:opacity .25s,transform .25s;animation:toastIn .25s ease both}
+.toast.ok{background:#0E7C5A}.toast.warn{background:#9A6A00}.toast.info{background:#2B2A4C}
+.toast.out{opacity:0;transform:translateY(8px)}
+.toast .toast-txt{white-space:pre-line;flex:1;line-height:1.7}
+.toast .toast-x{background:rgba(255,255,255,.18);box-shadow:none;border-radius:50%;width:24px;height:24px;padding:0;font-size:12px;flex:none;color:#fff}
+.toast .toast-x:hover{background:rgba(255,255,255,.3);transform:none}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px)}}
+
+/* ===== شريط التنقل: المزيد + أدوات النسخ الاحتياطي ===== */
+nav{position:relative;align-items:center}
+.nav-more{position:relative}
+.nav-more-btn{background:var(--surface-alt);color:var(--primary-dark);border:none;border-radius:14px;padding:8px 16px;font-size:13px;font-weight:600;box-shadow:none}
+.nav-more-btn:hover{background:#E6DEFF;color:var(--primary-dark);transform:none}
+.nav-more-btn.active{background:linear-gradient(135deg,var(--c1),var(--c2));color:#fff}
+.nav-more-menu{display:none;position:absolute;top:calc(100% + 8px);inset-inline-start:0;z-index:200;background:#fff;border-radius:16px;box-shadow:0 10px 28px rgba(75,63,196,.22);padding:8px;flex-direction:column;gap:4px;min-width:190px}
+.nav-more.open .nav-more-menu{display:flex}
+.nav-tools{margin-inline-start:auto;display:flex;gap:6px}
+.nav-tool{background:#fff;color:var(--primary-dark);border:1px solid #DDD6FF;box-shadow:none;border-radius:14px;padding:7px 12px;font-size:12.5px;font-weight:600}
+.nav-tool:hover{background:#E6DEFF;color:var(--primary-dark);transform:none}
+
+/* ===== الرئيسية: المطلوب النهارده ===== */
+.today-tiles{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+button.today-tile{display:flex;align-items:center;gap:10px;background:#fff;color:var(--text);border:2px solid #E4DCF7;border-radius:16px;padding:8px 14px;box-shadow:0 3px 10px rgba(75,63,196,.08);font-weight:600}
+button.today-tile:hover{background:#FAF7FF;color:var(--text)}
+button.today-tile .n{font-size:20px;font-weight:800;min-width:30px;text-align:center;border-radius:10px;padding:0 6px;color:#fff}
+button.today-tile.sev-bad .n{background:var(--danger)}
+button.today-tile.sev-warn .n{background:var(--warn-border)}
+button.today-tile.sev-info .n{background:var(--c5)}
+button.today-tile.open{border-color:var(--primary);background:#F3EEFF}
+.today-panel ul{margin:0;padding-inline-start:18px;font-size:13px}
+
+/* ===== عام ===== */
+details.tools>summary{cursor:pointer;font-weight:700;font-size:16px;color:var(--primary-dark)}
+details.tools[open]>summary{margin-bottom:12px}
+button.secondary.fbtn.on{background:var(--primary);color:#fff;border-color:var(--primary)}

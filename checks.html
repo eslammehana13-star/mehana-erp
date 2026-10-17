@@ -63,9 +63,6 @@
   <div class="toolbar">
     <h2>كل الشيكات</h2>
     <div>
-      <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
-      <input type="file" id="importFile" accept=".json" style="display:none">
-      <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
     </div>
   </div>
   <table>
@@ -171,21 +168,6 @@ function renderTable() {
   }));
 }
 
-document.getElementById('btnExport').addEventListener('click', downloadBackup);
-document.getElementById('btnImport').addEventListener('click', () => document.getElementById('importFile').click());
-document.getElementById('importFile').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
-    } catch {
-      alert('ملف غير صالح');
-    }
-  };
-  reader.readAsText(file);
-});
 
 refresh();
 </script>

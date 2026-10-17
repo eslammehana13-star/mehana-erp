@@ -65,48 +65,27 @@
 <h1>📦 إدارة المخزون</h1>
 
 <div id="alertBox"></div>
-
 <div class="card" id="atpCard" style="display:none;">
   <h2>🚨 تجاوزات ATP</h2>
   <div id="atpBody"></div>
 </div>
-
 <div class="card">
-  <h2>🗂 شجرة تصنيف المنتجات (القسم ← الفاميلي)</h2>
-  <p class="muted">الأقسام المعتمدة: بوتاجازات / MDA / SDA. كل منتج ليه قسم وفاميلي، والتصنيف ده هو اللي هيتحسب عليه التارجت والتحليل.</p>
-  <div id="treeBox"></div>
-  <button type="button" id="btnAutoClass" style="margin-top:6px;">🪄 إعادة تصنيف تلقائي حسب الشجرة</button>
-  <p class="muted">بيوزّع المنتجات (النشطة والمؤرشفة) على: بوتاجازات — MDA ← (ثلاجات، ديب فريزر، بيلت إن ← مسطح/فرن، غسالات ملابس، غسالات أطباق، شفاطات) — SDA ← (مكانس، تحضير الطعام، مشروبات). اللي مش قادر يحدده بيتعرضلك تصنفه يدوي.</p>
-  <h3 style="font-size:14px; margin:14px 0 6px;">إعادة تصنيف جماعية (من ملف)</h3>
-  <p class="muted">الصق سطر لكل منتج: <b>الكود ← القسم ← الفاميلي</b> (المطابقة بالكود، وبتشمل المنتجات المؤرشفة كمان).</p>
-  <textarea id="classPaste" rows="4" placeholder="مثال:&#10;KDN43NL2E8&#9;MDA&#9;ثلاجات&#10;HGV1F8Y52S&#9;بوتاجازات&#9;بوتاجازات" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
-  <button type="button" id="btnClassImport" style="margin-top:8px;">🗂 تطبيق التصنيف</button>
-  <h3 style="font-size:14px; margin:14px 0 6px;">تصنيف يدوي</h3>
-  <label style="font-size:13px;"><input type="checkbox" id="classShowAll" style="flex:none; width:auto;"> عرض كل المنتجات (مش بس غير المصنفة)</label>
-  <div style="overflow-x:auto;"><table><thead><tr><th>الكود</th><th>المنتج</th><th>الحالة</th><th>القسم</th><th>الفاميلي</th></tr></thead><tbody id="classTable"></tbody></table></div>
-  <datalist id="familyList"></datalist>
-  <button type="button" id="btnClassSave" style="margin-top:8px;">💾 حفظ التصنيفات المعدّلة</button>
-</div>
-
-<div class="card">
-  <h2>🧨 مسح وإعادة ضبط</h2>
-  <p class="muted">لو عايز تبدأ بقايمة أسعار جديدة: (1) امسح قايمة الأسعار — اللي اتباع قبل كده بيتأرشف للتحليل بس، واللي ما اتباعش بيتمسح. (2) حمّل القايمة الجديدة من كارت الاستيراد، وأي كود مطابق بيرجع نشط بالاسم والسعر الجديد. لو عايز تمسح البيانات التاريخية كمان وتعيد استيرادها، امسحها <b>الأول</b> عشان المنتجات اللي كانت مستخدمة بس فيها تتمسح بدل ما تتأرشف.</p>
-  <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <button type="button" class="danger" id="btnWipeCatalog">🗑 مسح قايمة الأسعار الحالية</button>
-    <button type="button" class="danger" id="btnWipeHistorical">🗑 مسح البيانات التاريخية المستوردة</button>
+  <div class="toolbar">
+    <h2>الأصناف والأرصدة الحالية</h2>
+    <div>
+      <label style="font-size:13px; margin-inline-end:8px;"><input type="checkbox" id="showArchived" style="flex:none; width:auto;"> عرض المنتجات المؤرشفة</label>
+      <label style="font-size:13px; margin-inline-end:8px;" title="رصيد حركات البرنامج فقط، مش رصيد الساب (غالباً سالب)"><input type="checkbox" id="showBalance" style="flex:none; width:auto;"> عرض الرصيد الحالي (حركات البرنامج)</label>
+    </div>
   </div>
+  <table id="mainTable" class="hide-bal">
+    <thead>
+      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th class="col-bal">الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الجاية</th><th>الطلبيات المحجوزة</th><th>المتاح (Remaining)</th><th>آخر تحديث</th><th>إجراءات</th></tr>
+    </thead>
+    <tbody id="productsTable"></tbody>
+  </table>
+  <p class="muted" id="emptyState" style="display:none">لا توجد أصناف بعد — أضف أول منتج من الأعلى.</p>
 </div>
-
-<div class="card">
-  <h2>🧹 مزامنة الكتالوج مع قايمة الأسعار الحالية</h2>
-  <p class="muted">لو منتجات قديمة دخلت قايمة الفواتير بالغلط: الصق هنا <b>قايمة الأسعار الحالية</b> (آخر شهر). أي منتج مش فيها بيتأرشف: يختفي من قوايم الفواتير ويفضل محسوب في المبيعات التاريخية والتحليل. والمنتجات اللي في القايمة بترجع نشطة، ومعاها بيتصلّح اسمها وسعرها وتصنيفها لو اتغيّروا بالغلط.</p>
-  <textarea id="syncList" rows="4" placeholder="الصق قايمة الأسعار الحالية كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
-  <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:6px;">
-    <input type="checkbox" id="syncRefresh" checked style="flex:none; width:auto;"> حدّث كمان الاسم والسعر والتصنيف من نفس القايمة (بيرجّع اللي اتغيّر بالغلط)
-  </label>
-  <button type="button" id="btnSyncCatalog" style="margin-top:8px;">🧹 مزامنة</button>
-</div>
-
+<details class="card tools"><summary>🔄 تحديث الأسعار وملف ATP</summary>
 <div class="card">
   <h2>🔄 تحديث قائمة الأسعار الشهرية</h2>
   <p class="muted">كل شهر: الصق ملف القايمة الجديدة (بنفس الأعمدة). المنتجات الموجودة بيتحدّث سعرها ووصفها ومعاها تصنيفها، والجديدة بتتضاف. الأرصدة والفواتير القديمة مبتتغيرش.</p>
@@ -116,14 +95,27 @@
   </label>
   <button type="button" id="btnUpdPrices" style="margin-top:8px;">🔄 تحديث الأسعار</button>
 </div>
-
 <div class="card">
-  <h2>📥 استيراد منتجات من إكسل</h2>
-  <p class="muted">انسخ من إكسل (سطر لكل منتج) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← السعر ← الرصيد الافتتاحي ← حد الطلب ← الوحدة ← الوصف. الاسم بس هو الإجباري، والمكرر (بالكود) بيتخطى.</p>
-  <textarea id="bulkProducts" rows="5" placeholder="مثال:&#10;ثلاجة 400 لتر&#9;EG01&#9;MDA&#9;18500&#9;10&#9;3&#10;بوتجاز 5 شعلة&#9;EG02&#9;بوتجاز&#9;12000" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
-  <button type="button" id="btnBulkProducts" style="margin-top:8px;">📥 استيراد</button>
+  <h2>🔄 تحديث ATP والكمية الجاية (ملف دوري من الساب)</h2>
+  <p class="muted">كل ما يوصلك ملف جديد (كل يومين تقريباً): انسخ الأعمدة بالترتيب PXX ← VIB (كود الموديل) ← Type ← Incoming ← ATP ← Orders ← Remaining Qty، والصق هنا. المطابقة بكود الموديل (VIB) مع عمود "الكود" عندك، فلازم تكون الأكواد متطابقة.</p>
+  <textarea id="updStockStatus" rows="5" placeholder="الصق هنا ملف الـ ATP كامل (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnUpdStockStatus" style="margin-top:8px;">🔄 تحديث</button>
 </div>
-
+<div class="card">
+  <div class="toolbar">
+    <h2>تحديث يدوي لصنف واحد (ATP / الكمية الجاية)</h2>
+  </div>
+  <p class="muted">الأرقام دي بتيجيلك من المصنع/المخزن المركزي وممكن تتحدث أكتر من مرة في الشهر — كل تحديث بيتسجل بتاريخه.</p>
+  <form id="statusForm">
+    <select id="st_product" required></select>
+    <input type="number" id="st_atp" placeholder="ATP الجديد (سيبه فاضي لو مفيش تحديث)">
+    <input type="number" id="st_incoming" placeholder="الكمية الجاية الجديدة (سيبه فاضي لو مفيش تحديث)">
+    <input type="text" id="st_note" placeholder="ملاحظة (اختياري)">
+    <button type="submit">تسجيل التحديث</button>
+  </form>
+</div>
+</details>
+<details class="card tools"><summary>➕ إضافة صنف / حركة مخزون / عرض / استيراد منتجات</summary>
 <div class="card">
   <div class="toolbar">
     <h2>إضافة منتج جديد</h2>
@@ -140,7 +132,6 @@
     <button type="submit">إضافة</button>
   </form>
 </div>
-
 <div class="card">
   <div class="toolbar">
     <h2>تسجيل حركة مخزون (وارد / صادر)</h2>
@@ -156,7 +147,6 @@
     <button type="submit">تسجيل الحركة</button>
   </form>
 </div>
-
 <div class="card">
   <div class="toolbar">
     <h2>عرض على منتج (سعر مؤقت)</h2>
@@ -169,47 +159,48 @@
     <button type="button" class="secondary" id="btnClearOffer">إلغاء العرض</button>
   </form>
 </div>
-
 <div class="card">
-  <h2>🔄 تحديث ATP والكمية الجاية (ملف دوري من الساب)</h2>
-  <p class="muted">كل ما يوصلك ملف جديد (كل يومين تقريباً): انسخ الأعمدة بالترتيب PXX ← VIB (كود الموديل) ← Type ← Incoming ← ATP ← Orders ← Remaining Qty، والصق هنا. المطابقة بكود الموديل (VIB) مع عمود "الكود" عندك، فلازم تكون الأكواد متطابقة.</p>
-  <textarea id="updStockStatus" rows="5" placeholder="الصق هنا ملف الـ ATP كامل (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
-  <button type="button" id="btnUpdStockStatus" style="margin-top:8px;">🔄 تحديث</button>
+  <h2>📥 استيراد منتجات من إكسل</h2>
+  <p class="muted">انسخ من إكسل (سطر لكل منتج) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← السعر ← الرصيد الافتتاحي ← حد الطلب ← الوحدة ← الوصف. الاسم بس هو الإجباري، والمكرر (بالكود) بيتخطى.</p>
+  <textarea id="bulkProducts" rows="5" placeholder="مثال:&#10;ثلاجة 400 لتر&#9;EG01&#9;MDA&#9;18500&#9;10&#9;3&#10;بوتجاز 5 شعلة&#9;EG02&#9;بوتجاز&#9;12000" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnBulkProducts" style="margin-top:8px;">📥 استيراد</button>
 </div>
-
+</details>
+<details class="card tools"><summary>🗂 التصنيف ومزامنة الكتالوج والمسح</summary>
 <div class="card">
-  <div class="toolbar">
-    <h2>تحديث يدوي لصنف واحد (ATP / الكمية الجاية)</h2>
+  <h2>🗂 شجرة تصنيف المنتجات (القسم ← الفاميلي)</h2>
+  <p class="muted">الأقسام المعتمدة: بوتاجازات / MDA / SDA. كل منتج ليه قسم وفاميلي، والتصنيف ده هو اللي هيتحسب عليه التارجت والتحليل.</p>
+  <div id="treeBox"></div>
+  <button type="button" id="btnAutoClass" style="margin-top:6px;">🪄 إعادة تصنيف تلقائي حسب الشجرة</button>
+  <p class="muted">بيوزّع المنتجات (النشطة والمؤرشفة) على: بوتاجازات — MDA ← (ثلاجات، ديب فريزر، بيلت إن ← مسطح/فرن، غسالات ملابس، غسالات أطباق، شفاطات) — SDA ← (مكانس، تحضير الطعام، مشروبات). اللي مش قادر يحدده بيتعرضلك تصنفه يدوي.</p>
+  <h3 style="font-size:14px; margin:14px 0 6px;">إعادة تصنيف جماعية (من ملف)</h3>
+  <p class="muted">الصق سطر لكل منتج: <b>الكود ← القسم ← الفاميلي</b> (المطابقة بالكود، وبتشمل المنتجات المؤرشفة كمان).</p>
+  <textarea id="classPaste" rows="4" placeholder="مثال:&#10;KDN43NL2E8&#9;MDA&#9;ثلاجات&#10;HGV1F8Y52S&#9;بوتاجازات&#9;بوتاجازات" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnClassImport" style="margin-top:8px;">🗂 تطبيق التصنيف</button>
+  <h3 style="font-size:14px; margin:14px 0 6px;">تصنيف يدوي</h3>
+  <label style="font-size:13px;"><input type="checkbox" id="classShowAll" style="flex:none; width:auto;"> عرض كل المنتجات (مش بس غير المصنفة)</label>
+  <div style="overflow-x:auto;"><table><thead><tr><th>الكود</th><th>المنتج</th><th>الحالة</th><th>القسم</th><th>الفاميلي</th></tr></thead><tbody id="classTable"></tbody></table></div>
+  <datalist id="familyList"></datalist>
+  <button type="button" id="btnClassSave" style="margin-top:8px;">💾 حفظ التصنيفات المعدّلة</button>
+</div>
+<div class="card">
+  <h2>🧹 مزامنة الكتالوج مع قايمة الأسعار الحالية</h2>
+  <p class="muted">لو منتجات قديمة دخلت قايمة الفواتير بالغلط: الصق هنا <b>قايمة الأسعار الحالية</b> (آخر شهر). أي منتج مش فيها بيتأرشف: يختفي من قوايم الفواتير ويفضل محسوب في المبيعات التاريخية والتحليل. والمنتجات اللي في القايمة بترجع نشطة، ومعاها بيتصلّح اسمها وسعرها وتصنيفها لو اتغيّروا بالغلط.</p>
+  <textarea id="syncList" rows="4" placeholder="الصق قايمة الأسعار الحالية كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <label style="display:flex; align-items:center; gap:6px; font-size:13px; margin-top:6px;">
+    <input type="checkbox" id="syncRefresh" checked style="flex:none; width:auto;"> حدّث كمان الاسم والسعر والتصنيف من نفس القايمة (بيرجّع اللي اتغيّر بالغلط)
+  </label>
+  <button type="button" id="btnSyncCatalog" style="margin-top:8px;">🧹 مزامنة</button>
+</div>
+<div class="card">
+  <h2>🧨 مسح وإعادة ضبط</h2>
+  <p class="muted">لو عايز تبدأ بقايمة أسعار جديدة: (1) امسح قايمة الأسعار — اللي اتباع قبل كده بيتأرشف للتحليل بس، واللي ما اتباعش بيتمسح. (2) حمّل القايمة الجديدة من كارت الاستيراد، وأي كود مطابق بيرجع نشط بالاسم والسعر الجديد. لو عايز تمسح البيانات التاريخية كمان وتعيد استيرادها، امسحها <b>الأول</b> عشان المنتجات اللي كانت مستخدمة بس فيها تتمسح بدل ما تتأرشف.</p>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" class="danger" id="btnWipeCatalog">🗑 مسح قايمة الأسعار الحالية</button>
+    <button type="button" class="danger" id="btnWipeHistorical">🗑 مسح البيانات التاريخية المستوردة</button>
   </div>
-  <p class="muted">الأرقام دي بتيجيلك من المصنع/المخزن المركزي وممكن تتحدث أكتر من مرة في الشهر — كل تحديث بيتسجل بتاريخه.</p>
-  <form id="statusForm">
-    <select id="st_product" required></select>
-    <input type="number" id="st_atp" placeholder="ATP الجديد (سيبه فاضي لو مفيش تحديث)">
-    <input type="number" id="st_incoming" placeholder="الكمية الجاية الجديدة (سيبه فاضي لو مفيش تحديث)">
-    <input type="text" id="st_note" placeholder="ملاحظة (اختياري)">
-    <button type="submit">تسجيل التحديث</button>
-  </form>
 </div>
-
-<div class="card">
-  <div class="toolbar">
-    <h2>الأصناف والأرصدة الحالية</h2>
-    <div>
-      <label style="font-size:13px; margin-inline-end:8px;"><input type="checkbox" id="showArchived" style="flex:none; width:auto;"> عرض المنتجات المؤرشفة</label>
-      <label style="font-size:13px; margin-inline-end:8px;" title="رصيد حركات البرنامج فقط، مش رصيد الساب (غالباً سالب)"><input type="checkbox" id="showBalance" style="flex:none; width:auto;"> عرض الرصيد الحالي (حركات البرنامج)</label>
-      <button class="secondary" id="btnExport">⬇ نسخة احتياطية</button>
-      <input type="file" id="importFile" accept=".json" style="display:none">
-      <button class="secondary" id="btnImport">⬆ استعادة نسخة</button>
-    </div>
-  </div>
-  <table id="mainTable" class="hide-bal">
-    <thead>
-      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th class="col-bal">الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الجاية</th><th>الطلبيات المحجوزة</th><th>المتاح (Remaining)</th><th>آخر تحديث</th><th>إجراءات</th></tr>
-    </thead>
-    <tbody id="productsTable"></tbody>
-  </table>
-  <p class="muted" id="emptyState" style="display:none">لا توجد أصناف بعد — أضف أول منتج من الأعلى.</p>
-</div>
+</details>
 
 <script type="module">
 import {
@@ -507,22 +498,6 @@ document.getElementById('statusForm').addEventListener('submit', (e) => {
   refresh();
 });
 
-document.getElementById('btnExport').addEventListener('click', downloadBackup);
-
-document.getElementById('btnImport').addEventListener('click', () => document.getElementById('importFile').click());
-document.getElementById('importFile').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      if (importBackup(JSON.parse(reader.result))) { refresh(); alert('تم استعادة النسخة الاحتياطية بنجاح'); }
-    } catch {
-      alert('ملف غير صالح');
-    }
-  };
-  reader.readAsText(file);
-});
 
 document.getElementById('btnBulkProducts').addEventListener('click', () => {
   const box = document.getElementById('bulkProducts');
