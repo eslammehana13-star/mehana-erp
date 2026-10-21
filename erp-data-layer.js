@@ -2364,6 +2364,33 @@ function sapDocState(lines) { const st = new Set(lines.map((l) => l.state)); ret
 /** حالة صنف عندك: حالته لو كلها واحدة، وإلا mixed */
 function localItemState(l) { return l.statuses && l.statuses.size === 1 ? [...l.statuses][0] : 'mixed'; }
 
+/** يقرا تقرير الساب بأسماء الأعمدة من صف العناوين (أو الترتيب القديم لو مفيش عناوين) ويرجّع: [تاريخ ISO, أوردر, كود عميل, صنف, وصف, كمية, سعر, حالة] */
+function sapRows(text) {
+  const rows = parseRows(text);
+  if (!rows.length) return rows;
+  const hdr = rows[0].map((c) => String(c).trim().toLowerCase());
+  const idx = (n) => hdr.findIndex((h) => h === n);
+  const idxStart = (n) => hdr.findIndex((h) => h.startsWith(n));
+  const iDoc = idx('sales document');
+  if (iDoc === -1) return rows; // مفيش عناوين: الترتيب القديم
+  const col = {
+    date: idx('document date'), doc: iDoc, cust: idx('sold-to party'), mat: idx('material'),
+    desc: idx('material description'), qty: idxStart('order quantity'), net: idx('net price'), st: idxStart('overall delivery status'),
+  };
+  const body = rows.slice(1);
+  // صيغة التاريخ: لو أول رقم > 12 في أي صف يبقى يوم/شهر، وغير كده (الافتراضي) شهر/يوم
+  let dmy = false;
+  body.forEach((r) => { const m = String(r[col.date] || '').match(/^(\d{1,2})\/(\d{1,2})\/\d{4}/); if (m && Number(m[1]) > 12) dmy = true; });
+  const iso = (s) => {
+    const t = String(s || '').trim(), p = (x) => String(x).padStart(2, '0');
+    const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!m) return t;
+    return dmy ? `${m[3]}-${p(m[2])}-${p(m[1])}` : `${m[3]}-${p(m[1])}-${p(m[2])}`;
+  };
+  const g = (r, i) => (i >= 0 && r[i] !== undefined ? r[i] : '');
+  return body.map((r) => [iso(g(r, col.date)), g(r, col.doc), g(r, col.cust), g(r, col.mat), g(r, col.desc), g(r, col.qty), g(r, col.net), g(r, col.st)]);
+}
+
 function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePrice = false } = {}) {
   const vatDiv = 1 + (Number(vatRate) || 0) / 100;
   const tol = Math.max(Number(priceTolerancePct) || 0, 0);
@@ -2377,12 +2404,12 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePric
 
   // 1) قراءة تقرير الساب وتجميعه في أوردرات
   const docs = new Map();
-  parseRows(text).forEach(([dateStr, doc, custCode, material, desc, qty, net, status]) => {
+  sapRows(text).forEach(([dateStr, doc, custCode, material, desc, qty, net, status]) => {
     const d = normSapDate(dateStr);
     const docN = String(doc || '').trim();
-    if (!docN || !d || !String(material || '').trim()) { if (docN && docN.toLowerCase() !== 'sales document') out.badRows++; return; }
     const st = String(status || '').trim().toLowerCase();
-    if (st === 'not relevant') return;
+    if (st === 'not relevant') return; // أوردر ملغي/مش مرتبط: بيتستبعد من غير ما يتعدّ كسطر ناقص
+    if (!docN || !d || !String(material || '').trim()) { if (docN && docN.toLowerCase() !== 'sales document') out.badRows++; return; }
     const state = st === 'completed' ? 'delivered' : st === 'partially delivered' ? 'partial' : 'pending';
     const k = docN.toLowerCase();
     if (!docs.has(k)) docs.set(k, { doc: docN, date: d, custCode: String(custCode || '').trim(), lines: [] });
