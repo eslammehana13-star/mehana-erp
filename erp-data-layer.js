@@ -2359,16 +2359,21 @@ function normSapDate(s) {
 const sapFmt = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US');
 const STATE_TXT = { delivered: 'مسلَّم', partial: 'تسليم جزئي', pending: 'مش مسلَّم' };
 
-function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1 } = {}) {
+/** حالة أوردر الساب ككل من أسطره: delivered / partial / pending */
+function sapDocState(lines) { const st = new Set(lines.map((l) => l.state)); return st.size === 1 ? [...st][0] : (st.has('delivered') || st.has('partial') ? 'partial' : 'pending'); }
+/** حالة صنف عندك: حالته لو كلها واحدة، وإلا mixed */
+function localItemState(l) { return l.statuses && l.statuses.size === 1 ? [...l.statuses][0] : 'mixed'; }
+
+function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePrice = false } = {}) {
   const vatDiv = 1 + (Number(vatRate) || 0) / 100;
   const tol = Math.max(Number(priceTolerancePct) || 0, 0);
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
   const cByCode = new Map(customers.filter((c) => c.code).map((c) => [normCode(c.code), c]));
   const cById = new Map(customers.map((c) => [c.id, c]));
   const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
-  const out = { diffs: [], range: { from: null, to: null }, badRows: 0, counts: { sapDocs: 0, matchedClean: 0, withDiffs: 0 } };
+  const out = { diffs: [], invoices: [], comparePrice: !!comparePrice, range: { from: null, to: null }, badRows: 0, counts: { sapDocs: 0, matchedClean: 0, withDiffs: 0 } };
   let seq = 0;
-  const push = (d) => { out.diffs.push({ id: `d${++seq}`, canApply: true, note: '', localText: '—', sapText: '—', ...d }); };
+  const push = (d) => { const x = { id: `d${++seq}`, canApply: true, note: '', localText: '—', sapText: '—', ...d }; out.diffs.push(x); return x; };
 
   // 1) قراءة تقرير الساب وتجميعه في أوردرات
   const docs = new Map();
@@ -2404,7 +2409,8 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1 } = {}) {
       const p = pMap.get(it.productId);
       const k = ((p && p.sku) || '').trim().toLowerCase() || `id:${it.productId}`;
       if (m.has(k)) dup = true;
-      const a = m.get(k) || { key: k, productId: it.productId, product: p, qty: 0, gross: 0, allDelivered: true };
+      const a = m.get(k) || { key: k, productId: it.productId, product: p, qty: 0, gross: 0, allDelivered: true, statuses: new Set() };
+      a.statuses.add(it.status || 'unconfirmed');
       a.qty += it.qty; a.gross += it.qty * it.unitPrice; if (it.status !== 'delivered') a.allDelivered = false; m.set(k, a);
     });
     const f = 1 - (o.discountRate || 0) / 100;
@@ -2441,9 +2447,11 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1 } = {}) {
 
     if (!local) {
       const total = sd.lines.reduce((s, l) => s + l.qty * l.net, 0);
-      push({ kind: 'missing_order', doc: sd.doc, customerName: cname, label: 'أوردر في الساب مش عندك', localText: '—', sapText: `${sapAgg.size} صنف — ${sapFmt(total)} ج.م صافي`,
+      const md = push({ kind: 'missing_order', doc: sd.doc, customerName: cname, label: 'أوردر في الساب مش عندك', localText: '—', sapText: `${sapAgg.size} صنف — ${sapFmt(total)} ج.م صافي`,
         note: 'هيتضاف كفاتورة جديدة بسعر الساب ×ضريبة، من غير خصم تاجر (السعر صافي أصلاً)', date: sd.date, customerId: customer.id,
         lines: [...sapAgg.values()].map((a) => ({ material: a.material, desc: a.desc, qty: a.qty, net: a.net, state: a.state })) });
+      out.invoices.push({ status: 'sap_only', doc: sd.doc, customerId: customer.id, customerName: cname, orderId: null, invoiceNo: '', date: sd.date, localStatus: null, localDelivered: 0, localTotalItems: 0, sapStatus: sapDocState(sd.lines),
+        diffIds: [md.id], items: [...sapAgg.values()].map((a) => ({ key: a.key, sku: a.material, desc: a.desc, localQty: null, sapQty: a.qty, localNet: null, sapNet: a.net, localState: null, sapState: a.state, diffIds: [] })) });
       return;
     }
     claimed.add(local.id);
@@ -2461,7 +2469,7 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1 } = {}) {
       if (!l) { push({ ...item, kind: 'item_add', label: 'صنف ناقص عندك', localText: 'مش موجود', sapText: `${sapFmt(s.qty)} × ${sapFmt(s.net)}`, qty: s.qty, net: s.net, state: s.state }); return; }
       const canApply = !dup, note = dupNote;
       if (l.qty !== s.qty) push({ ...item, kind: 'qty', label: 'كمية مختلفة', localText: sapFmt(l.qty), sapText: sapFmt(s.qty), productId: l.productId, newQty: s.qty, canApply, note });
-      if (Math.abs(l.net - s.net) > Math.max(0.5, (s.net * tol) / 100)) push({ ...item, kind: 'price', label: 'سعر مختلف', localText: `${sapFmt(l.net)} صافي/وحدة`, sapText: `${sapFmt(s.net)} صافي/وحدة`, productId: l.productId, newNet: s.net, canApply, note });
+      if (comparePrice && Math.abs(l.net - s.net) > Math.max(0.5, (s.net * tol) / 100)) push({ ...item, kind: 'price', label: 'سعر مختلف', localText: `${sapFmt(l.net)} صافي/وحدة`, sapText: `${sapFmt(s.net)} صافي/وحدة`, productId: l.productId, newNet: s.net, canApply, note });
       if (s.state === 'delivered' && !l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.pending, sapText: STATE_TXT.delivered, productId: l.productId, newState: 'delivered', canApply, note: note || 'هيتسجّل Delivered بتاريخ التسليم اللي تحدده تحت' });
       else if (s.state !== 'delivered' && l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.delivered, sapText: STATE_TXT[s.state], productId: l.productId, newState: s.state === 'partial' ? 'release' : 'confirmed', canApply, note: note || '⚠ تطبيقه بيشيل الصنف من التارجت والمحقق' });
     });
@@ -2470,6 +2478,16 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1 } = {}) {
       push({ ...base, kind: 'item_remove', key: k, sku: (l.product && l.product.sku) || '', desc: l.product ? l.product.name : '(منتج محذوف)', label: 'صنف زيادة عندك', localText: sapFmt(l.qty), sapText: 'مش موجود', productId: l.productId, canApply: !dup, note: dupNote });
     });
     if (out.diffs.length > before) out.counts.withDiffs++; else out.counts.matchedClean++;
+    const mine = out.diffs.slice(before);
+    const itemRows = [...new Set([...sapAgg.keys(), ...lm.keys()])].map((k) => {
+      const s = sapAgg.get(k), l = lm.get(k);
+      return { key: k, sku: s ? s.material : ((l.product && l.product.sku) || ''), desc: (s && s.desc) || (l && l.product ? l.product.name : ''),
+        localQty: l ? l.qty : null, sapQty: s ? s.qty : null, localNet: l ? l.net : null, sapNet: s ? s.net : null,
+        localState: l ? localItemState(l) : null, sapState: s ? s.state : null, diffIds: mine.filter((d) => d.key === k).map((d) => d.id) };
+    });
+    out.invoices.push({ status: mine.length ? 'diff' : 'match', doc: sd.doc, customerId: local.customerId, customerName: base.customerName, orderId: local.id, invoiceNo: local.invoiceNo || '', date: sd.date,
+      localStatus: local.status || 'unconfirmed', localDelivered: local.items.filter((it) => it.status === 'delivered').length, localTotalItems: local.items.length,
+      sapStatus: sapDocState(sd.lines), diffIds: mine.filter((d) => !d.key).map((d) => d.id), items: itemRows });
   });
 
   // 3) فواتيرك داخل نطاق تواريخ التقرير ومش في الساب (للعلم بس، مفيش إجراء تلقائي)
