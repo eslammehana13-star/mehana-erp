@@ -2349,70 +2349,56 @@ function isPeriodApproximate(period) {
 // المطابقة برقم Sales Document = رقم الطلبية (orderNumber). مفيش حاجة بتتغيّر في previewSapSync، التغيير كله في applySapSync.
 // ------------------------------------------------------------
 const normCode = (s) => String(s || '').trim().replace(/^0+/, '').toLowerCase();
-function normSapDate(s) {
+function normSapDate(s, mdy = false) {
   const t = String(s || '').trim(), p2 = (x) => String(x).padStart(2, '0');
   let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return `${m[1]}-${p2(m[2])}-${p2(m[3])}`;
-  m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/); // يوم/شهر/سنة (صيغة الساب المصرية)
-  return m ? `${m[3]}-${p2(m[2])}-${p2(m[1])}` : '';
+  m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
+  if (!m) return '';
+  let a = Number(m[1]), b = Number(m[2]), day, month;
+  if (mdy) { month = a; day = b; if (a > 12) { day = a; month = b; } } // تقرير الساب الأصلي: شهر/يوم/سنة
+  else { day = a; month = b; if (b > 12 && a <= 12) { month = a; day = b; } } // الصيغة المختصرة: يوم/شهر/سنة
+  return `${m[3]}-${p2(month)}-${p2(day)}`;
 }
 const sapFmt = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US');
 const STATE_TXT = { delivered: 'مسلَّم', partial: 'تسليم جزئي', pending: 'مش مسلَّم' };
 
+/** توحيد رقم الطلبية للمقارنة: بيشيل المسافات والفواصل و.0 والأصفار اللي في الأول */
+const normDoc = (v) => String(v == null ? '' : v).trim().replace(/[\s,\u200e\u200f]/g, '').replace(/\.0+$/, '').replace(/^0+(?=\d)/, '').toLowerCase();
 /** حالة أوردر الساب ككل من أسطره: delivered / partial / pending */
 function sapDocState(lines) { const st = new Set(lines.map((l) => l.state)); return st.size === 1 ? [...st][0] : (st.has('delivered') || st.has('partial') ? 'partial' : 'pending'); }
 /** حالة صنف عندك: حالته لو كلها واحدة، وإلا mixed */
 function localItemState(l) { return l.statuses && l.statuses.size === 1 ? [...l.statuses][0] : 'mixed'; }
 
-/** يقرا تقرير الساب بأسماء الأعمدة من صف العناوين (أو الترتيب القديم لو مفيش عناوين) ويرجّع: [تاريخ ISO, أوردر, كود عميل, صنف, وصف, كمية, سعر, حالة] */
-function sapRows(text) {
-  const rows = parseRows(text);
-  if (!rows.length) return rows;
-  const hdr = rows[0].map((c) => String(c).trim().toLowerCase());
-  const idx = (n) => hdr.findIndex((h) => h === n);
-  const idxStart = (n) => hdr.findIndex((h) => h.startsWith(n));
-  const iDoc = idx('sales document');
-  if (iDoc === -1) return rows; // مفيش عناوين: الترتيب القديم
-  const col = {
-    date: idx('document date'), doc: iDoc, cust: idx('sold-to party'), mat: idx('material'),
-    desc: idx('material description'), qty: idxStart('order quantity'), net: idx('net price'), st: idxStart('overall delivery status'),
-  };
-  const body = rows.slice(1);
-  // صيغة التاريخ: لو أول رقم > 12 في أي صف يبقى يوم/شهر، وغير كده (الافتراضي) شهر/يوم
-  let dmy = false;
-  body.forEach((r) => { const m = String(r[col.date] || '').match(/^(\d{1,2})\/(\d{1,2})\/\d{4}/); if (m && Number(m[1]) > 12) dmy = true; });
-  const iso = (s) => {
-    const t = String(s || '').trim(), p = (x) => String(x).padStart(2, '0');
-    const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-    if (!m) return t;
-    return dmy ? `${m[3]}-${p(m[2])}-${p(m[1])}` : `${m[3]}-${p(m[1])}-${p(m[2])}`;
-  };
-  const g = (r, i) => (i >= 0 && r[i] !== undefined ? r[i] : '');
-  return body.map((r) => [iso(g(r, col.date)), g(r, col.doc), g(r, col.cust), g(r, col.mat), g(r, col.desc), g(r, col.qty), g(r, col.net), g(r, col.st)]);
-}
-
-function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePrice = false } = {}) {
+function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePrice = false, compareStatus = false } = {}) {
   const vatDiv = 1 + (Number(vatRate) || 0) / 100;
   const tol = Math.max(Number(priceTolerancePct) || 0, 0);
   const customers = getAll(STORAGE_KEYS.CUSTOMERS);
   const cByCode = new Map(customers.filter((c) => c.code).map((c) => [normCode(c.code), c]));
   const cById = new Map(customers.map((c) => [c.id, c]));
   const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
-  const out = { diffs: [], invoices: [], comparePrice: !!comparePrice, range: { from: null, to: null }, badRows: 0, counts: { sapDocs: 0, matchedClean: 0, withDiffs: 0 } };
+  const out = { diffs: [], invoices: [], rawRows: 0, comparePrice: !!comparePrice, compareStatus: !!compareStatus, range: { from: null, to: null }, badRows: 0, counts: { sapDocs: 0, matchedClean: 0, withDiffs: 0 } };
   let seq = 0;
+  const skippedDocs = new Map(), notRelDocs = new Set();
   const push = (d) => { const x = { id: `d${++seq}`, canApply: true, note: '', localText: '—', sapText: '—', ...d }; out.diffs.push(x); return x; };
 
   // 1) قراءة تقرير الساب وتجميعه في أوردرات
   const docs = new Map();
-  sapRows(text).forEach(([dateStr, doc, custCode, material, desc, qty, net, status]) => {
-    const d = normSapDate(dateStr);
+  parseRows(text).forEach((r) => {
+    // تقرير الساب الأصلي (14 عمود أو أكتر): تاريخ، وقت، Sales Document، نوع، كود العميل، اسم العميل، بند، Material، وصف، كمية، Net Price، مرجع، تاريخ تسليم، حالة، سبب رفض
+    const raw = r.length >= 14;
+    if (raw) out.rawRows++;
+    const [dateStr, doc, custCode, custName, material, desc, qty, net, status, rej] = raw
+      ? [r[0], r[2], r[4], r[5], r[7], r[8], r[9], r[10], r[13], r[14]]
+      : [r[0], r[1], r[2], '', r[3], r[4], r[5], r[6], r[7], ''];
+    const d = normSapDate(dateStr, raw);
     const docN = String(doc || '').trim();
+    if (!docN || !d || !String(material || '').trim()) { if (docN && docN.toLowerCase() !== 'sales document') { out.badRows++; skippedDocs.set(normDoc(docN), !d ? `صف الرقم ده اتخطّى: التاريخ "${String(dateStr || '').trim()}" مش مفهوم` : 'صف الرقم ده اتخطّى: كود الصنف فاضي'); } return; }
     const st = String(status || '').trim().toLowerCase();
-    if (st === 'not relevant') return; // أوردر ملغي/مش مرتبط: بيتستبعد من غير ما يتعدّ كسطر ناقص
-    if (!docN || !d || !String(material || '').trim()) { if (docN && docN.toLowerCase() !== 'sales document') out.badRows++; return; }
+    if (st === 'not relevant' || String(rej || '').trim()) { notRelDocs.add(normDoc(docN)); return; }
     const state = st === 'completed' ? 'delivered' : st === 'partially delivered' ? 'partial' : 'pending';
-    const k = docN.toLowerCase();
-    if (!docs.has(k)) docs.set(k, { doc: docN, date: d, custCode: String(custCode || '').trim(), lines: [] });
+    const k = normDoc(docN);
+    if (!docs.has(k)) docs.set(k, { doc: docN, date: d, custCode: String(custCode || '').trim(), custName: String(custName || '').trim(), lines: [] });
     docs.get(k).lines.push({ material: String(material).trim(), desc: String(desc || '').trim(), qty: toNum(qty), net: toNum(net), state });
     if (!out.range.from || d < out.range.from) out.range.from = d;
     if (!out.range.to || d > out.range.to) out.range.to = d;
@@ -2449,7 +2435,7 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePric
   const locals = getReportOrders();
   const docKeys = new Set(docs.keys());
   const byNum = new Map();
-  locals.forEach((o) => { const n = String(o.orderNumber || '').trim().toLowerCase(); if (n) { if (!byNum.has(n)) byNum.set(n, []); byNum.get(n).push(o); } });
+  locals.forEach((o) => { const n = normDoc(o.orderNumber); if (n) { if (!byNum.has(n)) byNum.set(n, []); byNum.get(n).push(o); } });
   const claimed = new Set();
   const dayMs = 86400000;
 
@@ -2460,13 +2446,16 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePric
     let local = null, linkedNow = false;
     const cands = byNum.get(key);
     if (cands && cands.length) local = cands.find((o) => customer && o.customerId === customer.id) || cands[0];
-    if (!customer && !local) { push({ kind: 'customer_unknown', doc: sd.doc, customerName: cname, canApply: false, label: 'عميل مش مسجل', note: `أوردر ${sd.doc} (${sd.lines.length} صنف) اتخطى لأن كود العميل مش مسجل عندك` }); return; }
+    if (!customer && !local) { const cu = push({ kind: 'customer_unknown', doc: sd.doc, customerName: cname, canApply: false, label: 'عميل مش مسجل', note: `أوردر ${sd.doc} (${sd.lines.length} صنف) اتخطى لأن كود العميل مش مسجل عندك` });
+      out.invoices.push({ status: 'sap_only', unknownCustomer: true, doc: sd.doc, customerId: null, customerName: sd.custName || cname, customerCode: sd.custCode, sapCustomerName: sd.custName, orderId: null, invoiceNo: '', date: sd.date, localStatus: null, localDelivered: 0, localTotalItems: 0, sapStatus: sapDocState(sd.lines),
+        diffIds: [cu.id], items: [...sapAgg.values()].map((a) => ({ key: a.key, sku: a.material, desc: a.desc, localQty: null, sapQty: a.qty, localNet: null, sapNet: a.net, localState: null, sapState: a.state, diffIds: [] })) });
+      return; }
 
     // مفيش أوردر برقمه: دوّر على فاتورة ليك لنفس العميل ونفس الأصناف (يمكن رقمها ناقص أو غلط)
     if (!local) {
       const sapKeys = [...sapAgg.keys()].sort().join('|'), t0 = new Date(sd.date).getTime();
       const pool = locals.filter((o) => !o.historicalImport && !claimed.has(o.id) && o.customerId === customer.id
-        && !docKeys.has(String(o.orderNumber || '').trim().toLowerCase()) && Math.abs(new Date(o.date).getTime() - t0) <= 30 * dayMs
+        && !docKeys.has(normDoc(o.orderNumber)) && Math.abs(new Date(o.date).getTime() - t0) <= 30 * dayMs
         && [...aggLocal(o).map.keys()].sort().join('|') === sapKeys)
         .sort((a, b) => Math.abs(new Date(a.date) - t0) - Math.abs(new Date(b.date) - t0));
       if (pool.length) { local = pool[0]; linkedNow = true; }
@@ -2477,7 +2466,7 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePric
       const md = push({ kind: 'missing_order', doc: sd.doc, customerName: cname, label: 'أوردر في الساب مش عندك', localText: '—', sapText: `${sapAgg.size} صنف — ${sapFmt(total)} ج.م صافي`,
         note: 'هيتضاف كفاتورة جديدة بسعر الساب ×ضريبة، من غير خصم تاجر (السعر صافي أصلاً)', date: sd.date, customerId: customer.id,
         lines: [...sapAgg.values()].map((a) => ({ material: a.material, desc: a.desc, qty: a.qty, net: a.net, state: a.state })) });
-      out.invoices.push({ status: 'sap_only', doc: sd.doc, customerId: customer.id, customerName: cname, orderId: null, invoiceNo: '', date: sd.date, localStatus: null, localDelivered: 0, localTotalItems: 0, sapStatus: sapDocState(sd.lines),
+      out.invoices.push({ status: 'sap_only', doc: sd.doc, customerId: customer.id, customerName: cname, customerCode: customer.code || sd.custCode, sapCustomerName: sd.custName, orderId: null, invoiceNo: '', date: sd.date, localStatus: null, localDelivered: 0, localTotalItems: 0, sapStatus: sapDocState(sd.lines),
         diffIds: [md.id], items: [...sapAgg.values()].map((a) => ({ key: a.key, sku: a.material, desc: a.desc, localQty: null, sapQty: a.qty, localNet: null, sapNet: a.net, localState: null, sapState: a.state, diffIds: [] })) });
       return;
     }
@@ -2497,8 +2486,8 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePric
       const canApply = !dup, note = dupNote;
       if (l.qty !== s.qty) push({ ...item, kind: 'qty', label: 'كمية مختلفة', localText: sapFmt(l.qty), sapText: sapFmt(s.qty), productId: l.productId, newQty: s.qty, canApply, note });
       if (comparePrice && Math.abs(l.net - s.net) > Math.max(0.5, (s.net * tol) / 100)) push({ ...item, kind: 'price', label: 'سعر مختلف', localText: `${sapFmt(l.net)} صافي/وحدة`, sapText: `${sapFmt(s.net)} صافي/وحدة`, productId: l.productId, newNet: s.net, canApply, note });
-      if (s.state === 'delivered' && !l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.pending, sapText: STATE_TXT.delivered, productId: l.productId, newState: 'delivered', canApply, note: note || 'هيتسجّل Delivered بتاريخ التسليم اللي تحدده تحت' });
-      else if (s.state !== 'delivered' && l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.delivered, sapText: STATE_TXT[s.state], productId: l.productId, newState: s.state === 'partial' ? 'release' : 'confirmed', canApply, note: note || '⚠ تطبيقه بيشيل الصنف من التارجت والمحقق' });
+      if (compareStatus && s.state === 'delivered' && !l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.pending, sapText: STATE_TXT.delivered, productId: l.productId, newState: 'delivered', canApply, note: note || 'هيتسجّل Delivered بتاريخ التسليم اللي تحدده تحت' });
+      else if (compareStatus && s.state !== 'delivered' && l.allDelivered) push({ ...item, kind: 'status', label: 'حالة تسليم مختلفة', localText: STATE_TXT.delivered, sapText: STATE_TXT[s.state], productId: l.productId, newState: s.state === 'partial' ? 'release' : 'confirmed', canApply, note: note || '⚠ تطبيقه بيشيل الصنف من التارجت والمحقق' });
     });
     lm.forEach((l, k) => {
       if (sapAgg.has(k)) return;
@@ -2512,7 +2501,7 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePric
         localQty: l ? l.qty : null, sapQty: s ? s.qty : null, localNet: l ? l.net : null, sapNet: s ? s.net : null,
         localState: l ? localItemState(l) : null, sapState: s ? s.state : null, diffIds: mine.filter((d) => d.key === k).map((d) => d.id) };
     });
-    out.invoices.push({ status: mine.length ? 'diff' : 'match', doc: sd.doc, customerId: local.customerId, customerName: base.customerName, orderId: local.id, invoiceNo: local.invoiceNo || '', date: sd.date,
+    out.invoices.push({ status: mine.length ? 'diff' : 'match', doc: sd.doc, customerId: local.customerId, customerName: base.customerName, customerCode: (customer && customer.code) || sd.custCode, sapCustomerName: sd.custName, localOrderNumber: local.orderNumber || '', orderId: local.id, invoiceNo: local.invoiceNo || '', date: sd.date,
       localStatus: local.status || 'unconfirmed', localDelivered: local.items.filter((it) => it.status === 'delivered').length, localTotalItems: local.items.length,
       sapStatus: sapDocState(sd.lines), diffIds: mine.filter((d) => !d.key).map((d) => d.id), items: itemRows });
   });
@@ -2522,9 +2511,12 @@ function previewSapSync(text, { vatRate = 14, priceTolerancePct = 1, comparePric
   locals.filter((o) => !o.historicalImport && !o.deferred && !claimed.has(o.id) && o.date.slice(0, 10) >= from && o.date.slice(0, 10) <= to).forEach((o) => {
     const num = String(o.orderNumber || '').trim();
     const cust = (cById.get(o.customerId) || {}).name || '(محذوف)';
-    push({ kind: num ? 'local_only' : 'no_number', doc: num || `فاتورة #${o.invoiceNo || '-'}`, orderId: o.id, customerName: cust, canApply: false,
+    const ld = push({ kind: num ? 'local_only' : 'no_number', doc: num || `فاتورة #${o.invoiceNo || '-'}`, orderId: o.id, customerName: cust, canApply: false,
       label: num ? 'عندك ومش في الساب' : 'فاتورة من غير رقم طلبية', localText: `${sapFmt(o.total)} ج.م — ${o.date.slice(0, 10)}`, sapText: '—',
-      note: num ? 'رقم الطلبية ده مش في التقرير: تأكد من الرقم أو إنها اتلغت/خارج التقرير' : 'مقدرتش أطابقها بأي أوردر في التقرير (العميل أو الأصناف مختلفة)' });
+      note: num ? (skippedDocs.get(normDoc(num)) || (notRelDocs.has(normDoc(num)) ? 'كل أسطره في الساب Not Relevant فاتشال من المقارنة' : (String(text).includes(num) ? 'الرقم موجود في اللي الصقته بس مش في عمود Sales Document (الأعمدة ممكن تكون مزاحة)' : 'الرقم ده مش موجود خالص في اللي الصقته (التقرير ممكن يكون ناقص)'))) : 'مقدرتش أطابقها بأي أوردر في التقرير (العميل أو الأصناف مختلفة)' });
+    out.invoices.push({ status: 'local_only', doc: num, customerId: o.customerId, customerName: cust, customerCode: (cById.get(o.customerId) || {}).code || '', orderId: o.id, invoiceNo: o.invoiceNo || '', date: o.date.slice(0, 10),
+      localStatus: o.status || 'unconfirmed', localDelivered: o.items.filter((it) => it.status === 'delivered').length, localTotalItems: o.items.length, sapStatus: null, diffIds: [ld.id],
+      items: [...aggLocal(o).map.values()].map((a) => ({ key: a.key, sku: (a.product && a.product.sku) || '', desc: a.product ? a.product.name : '(منتج محذوف)', localQty: a.qty, sapQty: null, localNet: a.net, sapNet: null, localState: localItemState(a), sapState: null, diffIds: [] })) });
   });
   return out;
 }
