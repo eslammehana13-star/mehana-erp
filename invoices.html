@@ -89,10 +89,6 @@
   .sync-items td, .sync-items th { padding: 5px 6px; }
   .sync-items td.bad { background: #F5EBD6; font-weight: 700; }
   .sync-items input[type=checkbox] { width: auto; min-width: 0; }
-  .sync-items tr.okc td { background: #E1EFE3; color: #1F7A4D; }
-  .sync-items tr.okc td.res { font-weight: 700; }
-  .bad-t { color: var(--danger); font-weight: 700; }
-  .ok-t { color: var(--ok); font-weight: 700; }
 </style>
 <link rel="stylesheet" href="theme.css">
 <script src="theme.js"></script>
@@ -223,14 +219,13 @@
   <details id="syncDetails">
     <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🔄 مزامنة مع تقرير الساب (مراجعة الأوردرات)</summary>
     <div style="margin-top:12px;">
-      <p class="muted">الصق تقرير الساب <b>زي ما هو بكل أعمدته</b> (بيقرا: تاريخ، Sales Document، كود العميل، Material، الكمية، حالة التسليم). بيقارن <b>رقم أوردر الساب برقم الطلبية</b> في البرنامج، وبعدين كود الصنف والكمية. <b>المقارنة لوحدها مبتغيّرش أي حاجة</b> — إنت اللي بتطبّق.</p>
+      <p class="muted">الصق تقرير الساب (نفس أعمدة الاستيراد التاريخي: Document Date ← Sales Document ← Sold-to Party ← Material ← Material Description ← Order Quantity ← Net Price ← Delivery Status). المقارنة برقم الـ Sales Document = رقم الطلبية في الفاتورة. <b>المقارنة لوحدها مبتغيّرش أي حاجة</b> — إنت اللي بتختار الفروقات وتضغط "طبّق المحدد".</p>
       <textarea id="sapSyncText" rows="5" placeholder="الصق تقرير الساب كامل (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center;">
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;">هامش فرق السعر % <input type="number" id="syncTol" value="1" min="0" step="0.5" style="width:70px;"></label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;">ضريبة % <input type="number" id="syncVat" value="14" min="0" step="0.5" style="width:70px;"></label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="التقرير مفيهوش Goods Issue، فالأصناف اللي هتتعلّم Delivered هتاخد التاريخ ده (والتارجت بيتحسب بيه)">تاريخ التسليم للأصناف الجديدة المسلَّمة <input type="date" id="syncDelDate" style="width:150px;"></label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="مقفولة افتراضياً لأنها بتطلّع فروق كاذبة لو الخصم مختلف"><input type="checkbox" id="syncComparePrice" style="flex:none; width:auto;"> قارن الأسعار كمان</label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="مقفولة افتراضياً"><input type="checkbox" id="syncCompareStatus" style="flex:none; width:auto;"> قارن حالة التسليم كمان</label>
         <button type="button" id="btnSyncCompare">🔍 قارن</button>
       </div>
       <div id="syncResult" style="margin-top:12px;"></div>
@@ -260,7 +255,7 @@ import {
   updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS, setOrderItemDeliveredAt,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
   previewSapSync, applySapSync, buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp,
-  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
+  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability, productCodeAndDesc,
 } from './erp-data-layer.js';
 
 /** نص المنتج في القايمة: كود — وصف — سعر (الكود بيتضاف لو الاسم مش بادئ بيه) */
@@ -309,7 +304,7 @@ function buildItemsPanelHtml(order) {
     const hasOffer = it.listPriceAtSale && it.listPriceAtSale > it.unitPrice;
     return `
       <tr data-product-id="${it.productId}">
-        <td>${esc(p?.name || '?')}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
+        <td>${esc(p ? productLabel(p) : '?')}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
         <td><input type="number" class="edit-item-qty" value="${it.qty}" min="1" style="width:60px;"></td>
         <td><input type="number" class="edit-item-price" value="${it.unitPrice}" min="0" style="width:80px;"></td>
         <td><select class="status-select ${it.status || 'unconfirmed'}" data-item-status="${order.id}" data-item-idx="${idx}">${statusOptionsHtml(it.status || 'unconfirmed')}</select></td>
@@ -1012,10 +1007,7 @@ function copyOrderForWhatsapp(orderId) {
   items.forEach((i, idx) => {
     const r = first + idx;
     const hasOffer = i.listPriceAtSale && i.listPriceAtSale > i.unitPrice;
-    const full = clean(i.product?.name || '');
-    const sepAt = full.indexOf(' — ');
-    const code = i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : '');
-    const desc = sepAt > -1 ? full.slice(sepAt + 3) : full;
+    const { code, desc } = productCodeAndDesc(i.product);
     rows.push([
       idx + 1, text(code), text(desc), i.qty,
       num(hasOffer ? i.listPriceAtSale : i.unitPrice),
@@ -1098,126 +1090,111 @@ document.getElementById('btnReconcile').addEventListener('click', () => {
 
 
 
-// ---------------- مزامنة مع تقرير الساب: عميل ← أوردر ← أصناف ----------------
+// ---------------- مزامنة مع تقرير الساب: عميل ← فاتورة ← أصناف ----------------
 const SAP_STATE_TXT = { delivered: 'Completed (مسلَّم)', partial: 'Partially Delivered', pending: 'Not Delivered' };
 const LOCAL_STATE_TXT = { unconfirmed: 'Unconfirmed', confirmed: 'Confirmed', release: 'Release', delivered: 'Delivered', mixed: 'مختلطة' };
-const KIND_TAG = { qty: '🔢 كمية', price: '💰 سعر', status: '🚚 حالة', item_add: '➕ ناقص عندك', item_remove: '➖ زيادة عندك', link: '🔗 ربط برقم الساب', customer: '👤 عميل مختلف' };
-const INV_BADGE = { match: ['✅ تمام — مطابق للساب', 'ok'], diff: ['⚠ فيه اختلاف', 'warn'], sap_only: ['➕ موجود في تقرير الساب بس', 'expired'], local_only: ['➖ موجود في البرنامج بس', 'expired'] };
-const CHIPS = [['all', 'الكل'], ['match', '✅ تمام'], ['diff', '⚠ فيه اختلاف'], ['sap_only', '➕ ساب بس'], ['local_only', '➖ برنامج بس']];
+const INFO_KINDS = { customer_unknown: '⚠ عميل مش مسجل', local_only: '❓ عندك ومش في الساب', no_number: '🏷 فاتورة من غير رقم طلبية' };
+const KIND_TAG = { qty: '🔢 كمية', price: '💰 سعر', status: '🚚 حالة', item_add: '➕ ناقص عندك', item_remove: '➖ زيادة عندك', link: '🔗 ربط برقم الساب', customer: '👤 عميل مختلف', missing_order: '➕ أوردر في الساب بس' };
+const INV_BADGE = { match: ['✅ مطابقة', 'ok'], diff: ['⚠ فيها فروق', 'warn'], sap_only: ['➕ في الساب بس', 'expired'] };
 let syncReport = null;
-const syncFilter = { status: 'all', cust: '' };
+const syncFilter = { onlyDiff: true, cust: '' };
 document.getElementById('syncDelDate').value = new Date().toISOString().slice(0, 10);
 const fmtN = (n) => (n === null || n === undefined ? '—' : (Math.round(n * 100) / 100).toLocaleString('en-US'));
 const diffById = (id) => syncReport.diffs.find(d => d.id === id);
 const invDiffIds = (inv) => [...inv.diffIds, ...inv.items.flatMap(it => it.diffIds)];
 const applicableIds = (ids) => ids.filter(id => diffById(id).canApply);
 
-function itemResult(it) {
-  if (it.localQty === null) return ['➕ في الساب بس', 'bad'];
-  if (it.sapQty === null) return ['➖ في البرنامج بس', 'bad'];
-  if (it.localQty !== it.sapQty) return [`❌ الكمية مختلفة (البرنامج ${fmtN(it.localQty)} ← الساب ${fmtN(it.sapQty)})`, 'bad'];
-  return ['✅ تمام', 'okc'];
-}
-
-function itemRowHtml(it, withChk, showResult) {
+function itemRowHtml(inv, it, withChk) {
   const dd = it.diffIds.map(diffById), kinds = new Set(dd.map(d => d.kind));
   const ids = applicableIds(it.diffIds);
-  const [resTxt, resCls] = itemResult(it);
-  const qtyBad = it.localQty !== null && it.sapQty !== null && it.localQty !== it.sapQty;
-  const pc = syncReport.comparePrice, sc = syncReport.compareStatus;
-  const notes = dd.filter(d => d.note).map(d => `<div style="font-size:11.5px; font-weight:400;">${esc(d.note)}</div>`).join('');
-  return `<tr class="${showResult && resCls === 'okc' ? 'okc' : ''}">
+  const qtyBad = it.localQty !== it.sapQty;
+  const stBad = kinds.has('status');
+  const priceCols = syncReport.comparePrice ? `<td class="${kinds.has('price') ? 'bad' : ''}">${fmtN(it.localNet)}</td><td class="${kinds.has('price') ? 'bad' : ''}">${fmtN(it.sapNet)}</td>` : '';
+  const tags = dd.map(d => `<span class="sync-tag ${d.canApply ? '' : 'info'}">${KIND_TAG[d.kind] || esc(d.label)}</span>${d.note ? `<div class="muted" style="font-size:11.5px;">${esc(d.note)}</div>` : ''}`).join('');
+  return `<tr>
     ${withChk ? `<td>${ids.length ? `<input type="checkbox" class="sync-chk" data-ids="${ids.join(',')}">` : ''}</td>` : ''}
-    <td><b dir="ltr">${esc(it.sku)}</b></td><td style="font-size:12px;">${esc(it.desc || '')}</td>
+    <td><b dir="ltr">${esc(it.sku)}</b><div class="muted" style="font-size:11.5px;">${esc(it.desc || '')}</div></td>
     <td class="${qtyBad ? 'bad' : ''}">${fmtN(it.localQty)}</td><td class="${qtyBad ? 'bad' : ''}">${fmtN(it.sapQty)}</td>
-    ${pc ? `<td class="${kinds.has('price') ? 'bad' : ''}">${fmtN(it.localNet)}</td><td class="${kinds.has('price') ? 'bad' : ''}">${fmtN(it.sapNet)}</td>` : ''}
-    ${sc ? `<td class="${kinds.has('status') ? 'bad' : ''}">${it.localState ? LOCAL_STATE_TXT[it.localState] || esc(it.localState) : '—'}</td><td class="${kinds.has('status') ? 'bad' : ''}">${it.sapState ? SAP_STATE_TXT[it.sapState] : '—'}</td>` : ''}
-    ${showResult ? `<td class="res ${resCls === 'bad' ? 'bad' : ''}">${resTxt}${notes}</td>` : ''}</tr>`;
+    ${priceCols}
+    <td class="${stBad ? 'bad' : ''}">${it.localState ? LOCAL_STATE_TXT[it.localState] || esc(it.localState) : '—'}</td>
+    <td class="${stBad ? 'bad' : ''}">${it.sapState ? SAP_STATE_TXT[it.sapState] : '—'}</td>
+    <td>${tags}</td></tr>`;
 }
 
-function itemsTableHtml(items, withChk, showResult) {
-  const pc = syncReport.comparePrice, sc = syncReport.compareStatus;
-  const sorted = showResult ? items.slice().sort((a, b) => (itemResult(a)[1] === 'okc') - (itemResult(b)[1] === 'okc')) : items;
+function itemsTableHtml(inv, items, withChk) {
+  const pc = syncReport.comparePrice;
   return `<div style="overflow-x:auto;"><table class="sync-items"><thead><tr>
-    ${withChk ? '<th></th>' : ''}<th>كود الصنف</th><th>الوصف</th><th>كمية البرنامج</th><th>كمية الساب</th>${pc ? '<th>سعرك (صافي)</th><th>سعر الساب</th>' : ''}${sc ? '<th>حالته عندك</th><th>حالته في الساب</th>' : ''}${showResult ? '<th>النتيجة</th>' : ''}</tr></thead>
-    <tbody>${sorted.map(it => itemRowHtml(it, withChk, showResult)).join('')}</tbody></table></div>`;
-}
-
-function numLineHtml(inv) {
-  if (inv.status === 'sap_only') return `رقم الطلبية في الساب: <b dir="ltr">${esc(inv.doc)}</b> — <span class="bad-t">مش موجود في البرنامج</span>`;
-  if (inv.status === 'local_only') return `رقم الطلبية في البرنامج: <b dir="ltr">${esc(inv.doc)}</b> — <span class="bad-t">مش موجود في تقرير الساب</span>`;
-  const linked = inv.diffIds.some(id => diffById(id).kind === 'link');
-  return linked
-    ? `رقم الطلبية: البرنامج <b dir="ltr">${esc(inv.localOrderNumber || 'فاضي')}</b> ≠ الساب <b dir="ltr">${esc(inv.doc)}</b> — <span class="bad-t">❌ مختلف</span>`
-    : `رقم الطلبية: <b dir="ltr">${esc(inv.doc)}</b> — <span class="ok-t">✅ مطابق</span>`;
+    ${withChk ? '<th></th>' : ''}<th>الصنف</th><th>كمية عندك</th><th>كمية الساب</th>${pc ? '<th>سعرك (صافي)</th><th>سعر الساب</th>' : ''}<th>حالته عندك</th><th>حالته في الساب</th><th>الفرق</th></tr></thead>
+    <tbody>${items.map(it => itemRowHtml(inv, it, withChk)).join('')}</tbody></table></div>`;
 }
 
 function invCardHtml(inv) {
   const [badgeTxt, badgeCls] = INV_BADGE[inv.status];
-  const all = applicableIds(invDiffIds(inv));
   const headIds = applicableIds(inv.diffIds);
-  const showResult = inv.status === 'match' || inv.status === 'diff';
-  const states = [
-    inv.localStatus ? `البرنامج: <b>${LOCAL_STATE_TXT[inv.localStatus]}</b> <span class="muted">(${inv.localDelivered}/${inv.localTotalItems} صنف Delivered)</span>` : '',
-    inv.sapStatus ? `الساب: <b>${SAP_STATE_TXT[inv.sapStatus]}</b>` : '',
-  ].filter(Boolean).join(' &nbsp;|&nbsp; ');
-  const extra = inv.diffIds.map(diffById).filter(d => d.kind === 'link' || d.kind === 'customer').map(d => `<div class="muted" style="font-size:12px;">${KIND_TAG[d.kind]}: ${esc(d.localText)} ← ${esc(d.sapText)}${d.note ? ' — ' + esc(d.note) : ''}</div>`).join('');
-  const reason = (inv.status === 'sap_only' || inv.status === 'local_only') ? `<div class="muted" style="font-size:12px;">${esc(diffById(inv.diffIds[0]).note)}</div>` : '';
-  const btn = all.length ? `<button type="button" class="secondary" data-apply-inv="${esc(inv.doc)}|${esc(inv.orderId || '')}" style="margin-inline-start:auto; padding:5px 10px; font-size:12px;">${inv.status === 'sap_only' ? 'إضافة الأوردر للبرنامج' : `طبّق على الأوردر ده (${all.length})`}</button>` : '';
-  return `<div class="sync-inv ${inv.status === 'local_only' ? 'sap_only' : inv.status}">
+  const all = applicableIds(invDiffIds(inv));
+  const bad = inv.items.filter(it => it.diffIds.length), same = inv.items.filter(it => !it.diffIds.length);
+  const localTxt = inv.localStatus ? `<b>${LOCAL_STATE_TXT[inv.localStatus]}</b> <span class="muted">(${inv.localDelivered}/${inv.localTotalItems} صنف Delivered)</span>` : '<b>مش موجودة</b>';
+  const extra = inv.diffIds.map(diffById).filter(d => d.kind === 'link' || d.kind === 'customer').map(d => `<div class="muted" style="font-size:12px;"><span class="sync-tag ${d.canApply ? '' : 'info'}">${KIND_TAG[d.kind]}</span> عندك: <b>${esc(d.localText)}</b> ← الساب: <b>${esc(d.sapText)}</b>${d.note ? ' — ' + esc(d.note) : ''}</div>`).join('');
+  const sapOnlyNote = inv.status === 'sap_only' ? `<div class="muted" style="font-size:12px;">${diffById(inv.diffIds[0]).note}</div>` : '';
+  return `<div class="sync-inv ${inv.status}" data-inv="${inv.doc}">
     <div class="sync-inv-head">
-      ${headIds.length ? `<input type="checkbox" class="sync-chk sync-head" data-ids="${headIds.join(',')}" title="تحديد الأوردر كله">` : ''}
-      <b dir="ltr">${esc(inv.doc || 'من غير رقم')}</b>
+      ${headIds.length ? `<input type="checkbox" class="sync-chk sync-head" data-ids="${headIds.join(',')}" title="تحديد الفاتورة كلها">` : ''}
+      <b dir="ltr">ساب ${esc(inv.doc)}</b>
       ${inv.invoiceNo ? `<span class="muted">فاتورتك #${esc(inv.invoiceNo)}</span>` : ''}
-      <span class="muted">${esc(String(inv.date || '').slice(0, 10))}</span>
-      <span class="countdown ${badgeCls}">${badgeTxt}</span>${btn}
+      <span class="countdown ${badgeCls}">${badgeTxt}</span>
+      ${all.length ? `<button type="button" class="secondary" data-apply-inv="${esc(inv.doc)}" style="margin-inline-start:auto; padding:5px 10px; font-size:12px;">طبّق على الفاتورة دي (${all.length})</button>` : ''}
     </div>
-    <div class="sync-states">${numLineHtml(inv)}</div>
-    ${states ? `<div class="sync-states">${states}</div>` : ''}
-    ${extra}${reason}
-    ${itemsTableHtml(inv.items, showResult, showResult)}
+    <div class="sync-states">عندك: ${localTxt} &nbsp;|&nbsp; الساب: <b>${SAP_STATE_TXT[inv.sapStatus]}</b></div>
+    ${extra}${sapOnlyNote}
+    ${inv.status === 'sap_only' ? itemsTableHtml(inv, inv.items, false) : (bad.length ? itemsTableHtml(inv, bad, true) : '')}
+    ${inv.status !== 'sap_only' && same.length ? `<details style="margin-top:6px;"><summary class="muted" style="cursor:pointer;">${same.length} صنف متطابق</summary>${itemsTableHtml(inv, same, false)}</details>` : ''}
   </div>`;
 }
 
+function syncSelectedCount() {
+  const n = selectedSyncIds().size;
+  const b = document.getElementById('btnSyncApply');
+  if (b) { b.textContent = `✅ طبّق المحدد (${n})`; b.disabled = n === 0; }
+}
 function selectedSyncIds() {
   const ids = new Set();
   document.querySelectorAll('#syncResult .sync-chk:checked').forEach(c => c.dataset.ids.split(',').forEach(i => ids.add(i)));
   return ids;
 }
-function syncSelectedCount() {
-  const n = selectedSyncIds().size, b = document.getElementById('btnSyncApply');
-  if (b) { b.textContent = `✅ طبّق المحدد (${n})`; b.disabled = n === 0; }
-}
 
 function renderSync() {
-  const box = document.getElementById('syncResult'), r = syncReport, inv = r.invoices;
-  const cnt = (st) => (st === 'all' ? inv.length : inv.filter(i => i.status === st).length);
-  const custKey = (i) => i.customerName;
-  const customers = [...new Set(inv.map(custKey))].sort((a, b) => a.localeCompare(b, 'ar'));
+  const box = document.getElementById('syncResult'), r = syncReport;
+  const inv = r.invoices;
+  const cnt = (st) => inv.filter(i => i.status === st).length;
+  const customers = [...new Set(inv.map(i => i.customerName))].sort((a, b) => a.localeCompare(b, 'ar'));
   if (syncFilter.cust && !customers.includes(syncFilter.cust)) syncFilter.cust = '';
-  const shown = inv.filter(i => (syncFilter.status === 'all' || i.status === syncFilter.status) && (!syncFilter.cust || custKey(i) === syncFilter.cust));
+  let shown = inv.filter(i => (!syncFilter.onlyDiff || i.status !== 'match') && (!syncFilter.cust || i.customerName === syncFilter.cust));
   const byCust = new Map();
-  shown.forEach(i => { const k = custKey(i); if (!byCust.has(k)) byCust.set(k, []); byCust.get(k).push(i); });
+  shown.forEach(i => { if (!byCust.has(i.customerName)) byCust.set(i.customerName, []); byCust.get(i.customerName).push(i); });
+  const info = r.diffs.filter(d => INFO_KINDS[d.kind]);
+  const infoGroups = Object.keys(INFO_KINDS).map(k => [k, info.filter(d => d.kind === k)]).filter(([, l]) => l.length);
   box.innerHTML = `
-    <p class="muted">اتقرى التقرير ${r.rawRows ? 'بصيغة الساب الأصلية (كل الأعمدة)' : 'بالصيغة المختصرة (8 أعمدة)'}. نطاق التواريخ: ${r.range.from} → ${r.range.to}${r.badRows ? ` — <span class="bad-t">${r.badRows} سطر اتخطّى (تاريخ أو كود صنف ناقص)</span>` : ''}.</p>
-    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">${CHIPS.map(([k, l]) => `<button type="button" class="secondary fbtn ${syncFilter.status === k ? 'on' : ''}" data-st="${k}">${l} (${cnt(k)})</button>`).join('')}</div>
+    <p><b>أوردرات في التقرير:</b> ${r.counts.sapDocs} | ✅ مطابقة: ${cnt('match')} | ⚠ فيها فروق: ${cnt('diff')} | ➕ في الساب بس: ${cnt('sap_only')}${r.badRows ? ` | <span style="color:var(--danger)">${r.badRows} سطر اتخطّى (تاريخ أو كود ناقص)</span>` : ''}</p>
+    <p class="muted">نطاق التقرير: ${r.range.from} → ${r.range.to}. الأصناف اللي هتتعلّم Delivered هتاخد تاريخ التسليم اللي فوق.</p>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-      <select id="syncCustFilter" style="max-width:260px;"><option value="">كل العملاء</option>${customers.map(c => `<option value="${esc(c)}" ${c === syncFilter.cust ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <select id="syncCustFilter" style="max-width:240px;"><option value="">كل العملاء</option>${customers.map(c => `<option value="${esc(c)}" ${c === syncFilter.cust ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="syncOnlyDiff" style="flex:none; width:auto;" ${syncFilter.onlyDiff ? 'checked' : ''}> الفواتير اللي فيها فروق بس</label>
       <button type="button" class="secondary" id="syncNone">إلغاء التحديد</button>
       <button type="button" id="btnSyncApply" disabled>✅ طبّق المحدد (0)</button>
     </div>
-    ${shown.length ? [...byCust.entries()].map(([name, list]) => `<div class="sync-cust">${esc(name)} <span dir="ltr" class="muted" style="font-weight:400;">(${esc(list[0].customerCode || '')})</span> <span class="muted" style="font-weight:400;">— ${list.length} أوردر</span></div>${list.map(invCardHtml).join('')}`).join('')
-      : '<p class="muted">مفيش أوردرات في الفلتر ده.</p>'}`;
-  box.querySelectorAll('[data-st]').forEach(b => b.addEventListener('click', () => { syncFilter.status = b.dataset.st; renderSync(); }));
+    ${shown.length ? [...byCust.entries()].map(([name, list]) => `<div class="sync-cust">${esc(name)} <span class="muted" style="font-weight:400;">(${list.length} فاتورة)</span></div>${list.map(invCardHtml).join('')}`).join('')
+      : `<p class="all-clear">✅ ${syncFilter.onlyDiff ? 'مفيش فواتير فيها فروق' : 'مفيش فواتير'} ${syncFilter.cust ? 'للعميل ده' : ''}.</p>`}
+    ${infoGroups.length ? `<details style="margin-top:10px;"><summary class="muted" style="cursor:pointer;">للعلم بس (${info.length}) — مفيش إجراء عليها</summary>${infoGroups.map(([k, l]) => `<div class="sync-grp"><h4>${INFO_KINDS[k]} (${l.length})</h4>${l.map(d => `<div class="sync-row"><div class="body"><b dir="ltr">${esc(d.doc)}</b> — ${esc(d.customerName || '')}<div class="vals">${esc(d.localText)} ← ${esc(d.sapText)}</div>${d.note ? `<div class="muted" style="font-size:12px;">${esc(d.note)}</div>` : ''}</div></div>`).join('')}</div>`).join('')}</details>` : ''}`;
+
   document.getElementById('syncCustFilter').addEventListener('change', (e) => { syncFilter.cust = e.target.value; renderSync(); });
+  document.getElementById('syncOnlyDiff').addEventListener('change', (e) => { syncFilter.onlyDiff = e.target.checked; renderSync(); });
   document.getElementById('syncNone').addEventListener('click', () => { box.querySelectorAll('.sync-chk').forEach(c => { c.checked = false; }); syncSelectedCount(); });
   box.querySelectorAll('.sync-chk').forEach(c => c.addEventListener('change', () => {
     if (c.classList.contains('sync-head')) c.closest('.sync-inv').querySelectorAll('.sync-chk').forEach(x => { x.checked = c.checked; });
     syncSelectedCount();
   }));
   box.querySelectorAll('[data-apply-inv]').forEach(b => b.addEventListener('click', () => {
-    const [doc, oid] = b.dataset.applyInv.split('|');
-    const invc = syncReport.invoices.find(i => i.doc === doc && (i.orderId || '') === oid);
+    const invc = syncReport.invoices.find(i => i.doc === b.dataset.applyInv);
     applySyncIds(new Set(applicableIds(invDiffIds(invc))));
   }));
   document.getElementById('btnSyncApply').addEventListener('click', () => applySyncIds(selectedSyncIds()));
@@ -1245,8 +1222,8 @@ function runSyncCompare() {
   const text = document.getElementById('sapSyncText').value;
   const box = document.getElementById('syncResult');
   if (!text.trim()) { alert('الصق تقرير الساب الأول'); return; }
-  const r = previewSapSync(text, { vatRate: Number(document.getElementById('syncVat').value) || 0, priceTolerancePct: Number(document.getElementById('syncTol').value) || 0, comparePrice: document.getElementById('syncComparePrice').checked, compareStatus: document.getElementById('syncCompareStatus').checked });
-  if (!r.counts.sapDocs) { syncReport = null; box.innerHTML = '<p class="muted">⚠ ملقيتش أوردرات في اللي الصقته. الصق التقرير بكل أعمدته من الساب (من أول Document Date).</p>'; return; }
+  const r = previewSapSync(text, { vatRate: Number(document.getElementById('syncVat').value) || 0, priceTolerancePct: Number(document.getElementById('syncTol').value) || 0, comparePrice: document.getElementById('syncComparePrice').checked });
+  if (!r.counts.sapDocs) { syncReport = null; box.innerHTML = '<p class="muted">⚠ ملقيتش أوردرات في اللي الصقته. تأكد من ترتيب الأعمدة وإن أول عمود تاريخ (YYYY-MM-DD).</p>'; return; }
   syncReport = r;
   renderSync();
 }
