@@ -238,6 +238,22 @@
   </details>
 </div>
 
+<div class="card">
+  <details id="promoDetails">
+    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🏷 تطبيق أسعار عرض على أوردرات اتسلمت</summary>
+    <div style="margin-top:12px;">
+      <p class="muted">بيستبدل سعر اللست بسعر العرض على الأصناف <b>المسلَّمة من التاريخ ده</b> (تاريخ تسليم الصنف). خصم التاجر بيفضل متطبق فوق سعر العرض، وإجمالي الفاتورة ورصيد العميل بيتحسبوا من جديد. <b>المعاينة لوحدها مبتغيّرش حاجة</b>، وقبل التطبيق بينزّل نسخة احتياطية تلقائياً. الأعمدة: الكود ← RRP ← سعر العرض (القايمة اللي في الصورة متحمّلة جاهزة).</p>
+      <textarea id="promoText" rows="6" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="الأصناف اللي اتسلمت في التاريخ ده أو بعده بتتعدّل. للي بعد 20 اتركه 21">من تاريخ تسليم (شامل) <input type="date" id="promoFrom" style="width:150px;"></label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="promoUndelivered" style="flex:none; width:auto;"> شمل الأصناف اللي لسه ماتسلمتش</label>
+        <button type="button" id="btnPromoPreview">🔍 عاين</button>
+      </div>
+      <div id="promoResult" style="margin-top:12px;"></div>
+    </div>
+  </details>
+</div>
+
 <div class="modal-overlay" id="itemsModalOverlay">
   <div class="modal-box">
     <div class="modal-box-header">
@@ -260,7 +276,8 @@ import {
   updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS, setOrderItemDeliveredAt,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
   previewSapSync, applySapSync, buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp,
-  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
+  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability, productCodeAndDesc,
+  previewPromoPrices, applyPromoPrices,
 } from './erp-data-layer.js';
 
 /** نص المنتج في القايمة: كود — وصف — سعر (الكود بيتضاف لو الاسم مش بادئ بيه) */
@@ -309,7 +326,7 @@ function buildItemsPanelHtml(order) {
     const hasOffer = it.listPriceAtSale && it.listPriceAtSale > it.unitPrice;
     return `
       <tr data-product-id="${it.productId}">
-        <td>${esc(p?.name || '?')}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
+        <td>${esc(p ? productLabel(p) : '?')}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
         <td><input type="number" class="edit-item-qty" value="${it.qty}" min="1" style="width:60px;"></td>
         <td><input type="number" class="edit-item-price" value="${it.unitPrice}" min="0" style="width:80px;"></td>
         <td><select class="status-select ${it.status || 'unconfirmed'}" data-item-status="${order.id}" data-item-idx="${idx}">${statusOptionsHtml(it.status || 'unconfirmed')}</select></td>
@@ -1012,10 +1029,7 @@ function copyOrderForWhatsapp(orderId) {
   items.forEach((i, idx) => {
     const r = first + idx;
     const hasOffer = i.listPriceAtSale && i.listPriceAtSale > i.unitPrice;
-    const full = clean(i.product?.name || '');
-    const sepAt = full.indexOf(' — ');
-    const code = i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : '');
-    const desc = sepAt > -1 ? full.slice(sepAt + 3) : full;
+    const { code, desc } = productCodeAndDesc(i.product);
     rows.push([
       idx + 1, text(code), text(desc), i.qty,
       num(hasOffer ? i.listPriceAtSale : i.unitPrice),
@@ -1251,6 +1265,66 @@ function runSyncCompare() {
   renderSync();
 }
 document.getElementById('btnSyncCompare').addEventListener('click', runSyncCompare);
+
+// ---------------- تطبيق أسعار عرض على أوردرات اتسلمت ----------------
+const PROMO_DEFAULT = ['WLZ2421SEG 21999 20899', 'MAF462B0 5999 4999', 'WGK254Z1EG 29999 27999', 'WGK254ZXEG 28999 27499', 'BGS21WHYG 9499 7999', 'MSM64110 1949 1499', 'BWD420HYG 12999 11999',
+  'BGL38WHYG 7999 6999', 'MCM3421M 3999 3499', 'KDN76XI3E9 56999 49999', 'KGP86FICE8 74999 67499', 'SMS46NB20V 35999 28799', 'SMP6EMC00V 48999 41999', 'SMS6ECI83T 53999 47999']
+  .map(l => l.split(' ').join('\t')).join('\n');
+document.getElementById('promoText').value = PROMO_DEFAULT;
+document.getElementById('promoFrom').value = '2026-10-21';
+let promoReport = null;
+const PROMO_TAG = { apply: ['جاهز', 'ok'], already: ['اتطبق قبل كده', 'warn'], other: ['سعره مختلف عن RRP', 'expired'] };
+
+function renderPromo() {
+  const r = promoReport, box = document.getElementById('promoResult');
+  const ready = r.rows.filter(x => x.status === 'apply'), other = r.rows.filter(x => x.status === 'other'), already = r.rows.filter(x => x.status === 'already');
+  const custs = new Set(ready.map(x => x.customerName)).size;
+  const delta = ready.reduce((s, x) => s + x.delta, 0);
+  box.innerHTML = `
+    <p><b>جاهز للتعديل:</b> ${ready.length} صنف (${custs} عميل) — أثره على الإجماليات: <b class="${delta < 0 ? 'bad-t' : ''}" dir="ltr">${fmtN(delta)}</b> ج.م (بعد خصم التاجر)<br>
+    <span class="muted">اتطبق قبل كده: ${already.length} | سعره مختلف عن RRP (مش متحدد تلقائي): ${other.length}</span></p>
+    ${r.notInCatalog.length ? `<p class="bad-t">⚠ أكواد مش في الكتالوج عندك: <span dir="ltr">${r.notInCatalog.map(esc).join('، ')}</span> (اتخطّت)</p>` : ''}
+    ${r.noItems.length ? `<p class="muted">أكواد مفيهاش أصناف مسلَّمة في المدة دي: <span dir="ltr">${r.noItems.map(esc).join('، ')}</span></p>` : ''}
+    ${r.rows.length ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+      <button type="button" class="secondary" id="promoSelReady">تحديد الجاهز</button><button type="button" class="secondary" id="promoSelNone">إلغاء التحديد</button>
+      <button type="button" id="btnPromoApply" disabled>✅ طبّق المحدد (0)</button></div>
+    <div style="overflow-x:auto;"><table class="sync-items"><thead><tr><th></th><th>العميل</th><th>فاتورة / طلبية</th><th>تسليم</th><th>الصنف</th><th>الكمية</th><th>السعر الحالي</th><th>سعر العرض</th><th>الأثر</th><th>الحالة</th></tr></thead><tbody>
+      ${r.rows.map((x, i) => `<tr>
+        <td>${x.status === 'already' ? '' : `<input type="checkbox" class="promo-chk" data-i="${i}" ${x.status === 'apply' ? 'checked' : ''}>`}</td>
+        <td>${esc(x.customerName)}</td><td dir="ltr">#${esc(x.invoiceNo || '-')}${x.orderNumber ? ' / ' + esc(x.orderNumber) : ''}</td>
+        <td>${esc(x.delivered ? x.date : 'لسه')}</td><td dir="ltr"><b>${esc(x.sku)}</b></td><td>${x.qty}</td>
+        <td class="${x.status === 'other' ? 'bad' : ''}">${fmtN(x.oldPrice)}</td><td>${fmtN(x.newPrice)}</td><td dir="ltr">${x.status === 'already' ? '—' : fmtN(x.delta)}</td>
+        <td><span class="countdown ${PROMO_TAG[x.status][1]}">${PROMO_TAG[x.status][0]}</span>${x.hasReturn ? ' <span class="bad-t" title="في مرتجع على الصنف ده، قيمة المرتجع هتفضل بالسعر القديم">↩ فيه مرتجع</span>' : ''}${x.historical ? ' <span class="muted">تاريخي</span>' : ''}</td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="muted">مفيش أصناف مطابقة في الفترة دي.</p>'}`;
+  const upd = () => { const n = box.querySelectorAll('.promo-chk:checked').length, b = document.getElementById('btnPromoApply'); if (b) { b.textContent = `✅ طبّق المحدد (${n})`; b.disabled = n === 0; } };
+  box.querySelectorAll('.promo-chk').forEach(c => c.addEventListener('change', upd));
+  const sr = document.getElementById('promoSelReady'), sn = document.getElementById('promoSelNone');
+  if (sr) sr.addEventListener('click', () => { box.querySelectorAll('.promo-chk').forEach(c => { c.checked = promoReport.rows[c.dataset.i].status === 'apply'; }); upd(); });
+  if (sn) sn.addEventListener('click', () => { box.querySelectorAll('.promo-chk').forEach(c => { c.checked = false; }); upd(); });
+  const ap = document.getElementById('btnPromoApply');
+  if (ap) ap.addEventListener('click', () => {
+    const chosen = [...box.querySelectorAll('.promo-chk:checked')].map(c => promoReport.rows[c.dataset.i]);
+    if (!chosen.length) return;
+    const d = chosen.reduce((s, x) => s + x.delta, 0);
+    if (!confirm(`هتتعدّل أسعار ${chosen.length} صنف، وإجماليات الفواتير هتتغيّر بمقدار ${fmtN(d)} ج.م (وأرصدة العملاء معاها). هننزّل نسخة احتياطية الأول تلقائياً. تكمل؟`)) return;
+    downloadBackup();
+    const res = applyPromoPrices(chosen);
+    alert(`تم ✅\nاتعدّل ${res.items} صنف في ${res.orders} فاتورة\nأثر على الإجماليات: ${fmtN(res.valueChange)} ج.م${res.skipped.length ? '\n⚠ اتخطّى:\n' + res.skipped.join('\n') : ''}`);
+    refresh();
+    runPromoPreview();
+  });
+  upd();
+}
+
+function runPromoPreview() {
+  const text = document.getElementById('promoText').value, from = document.getElementById('promoFrom').value;
+  if (!text.trim()) { alert('الصق قايمة الأسعار الأول'); return; }
+  if (!from) { alert('حدد تاريخ التسليم'); return; }
+  promoReport = previewPromoPrices(text, { fromDate: from, includeUndelivered: document.getElementById('promoUndelivered').checked });
+  if (!promoReport.promoCount) { document.getElementById('promoResult').innerHTML = '<p class="muted">⚠ مفهمتش القايمة. كل سطر: الكود ثم RRP ثم سعر العرض.</p>'; promoReport = null; return; }
+  renderPromo();
+}
+document.getElementById('btnPromoPreview').addEventListener('click', runPromoPreview);
 
 addLineItemRow();
 refresh();

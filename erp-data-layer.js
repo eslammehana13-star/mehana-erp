@@ -1597,6 +1597,24 @@ function setWhiteSpaceGroups(groups) { setSetting('whiteSpaceGroups', groups); }
 function getTargetCap() { return getSetting('targetCap100', false); }
 function setTargetCap(v) { setSetting('targetCap100', !!v); }
 
+/**
+ * الكود والوصف المعروضين لمنتج في الفواتير (نسخة العميل / إكسيل / تفاصيل الأصناف).
+ * الوصف = اللي بعد "كود — " في اسم المنتج (عربي لو موجود وإلا إنجليزي Type + Description + Size زي ما اتستورد)،
+ * ولو الاسم مفيهوش فاصل بنرجع لحقل الوصف (إلا الملاحظة التلقائية بتاعة الاستيراد التاريخي).
+ */
+function productCodeAndDesc(p) {
+  const clean = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  if (!p) return { code: '', desc: '' };
+  const name = clean(p.name), sku = clean(p.sku);
+  const sepAt = name.indexOf(' — ');
+  let code = sku, desc = name;
+  if (sepAt > -1) { code = sku || name.slice(0, sepAt); desc = name.slice(sepAt + 3); }
+  else if (sku && name.toLowerCase().startsWith(sku.toLowerCase())) desc = clean(name.slice(sku.length).replace(/^[\s—–-]+/, ''));
+  const d = clean(p.description);
+  if ((!desc || desc.toLowerCase() === sku.toLowerCase()) && d && !/نشأ تلقائياً/.test(d)) desc = d;
+  return { code, desc: desc || name };
+}
+
 /** كل أسطر المبيعات المسلَّمة فعلياً (الصنف حالته Delivered) بتاريخ تسليمها، وقيمتها بعد خصم الطلبية (شاملة الضريبة) */
 function getDeliveredLines() {
   const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
@@ -2783,6 +2801,88 @@ function getOrderAtpAvailability(orderId) {
 }
 
 // ------------------------------------------------------------
+// أسعار العروض على أوردرات اتسلمت فعلاً: بتستبدل سعر اللست (RRP) بسعر العرض على الأصناف المسلَّمة من تاريخ معيّن.
+// previewPromoPrices للقراءة بس، وapplyPromoPrices هو اللي بيغيّر. خصم التاجر بيفضل متطبق فوق سعر العرض، والإجمالي بيتعاد حسابه.
+// ------------------------------------------------------------
+
+/** text: سطر لكل صنف: الكود ← RRP ← سعر العرض (تاب أو مسافتين أو ;). fromDate: YYYY-MM-DD شامل. */
+function previewPromoPrices(text, { fromDate = '', includeUndelivered = false, tolerance = 1 } = {}) {
+  const promos = new Map();
+  String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).forEach((l) => {
+    let t = l.split(/\t+|;|\s{2,}/).map((x) => x.trim()).filter(Boolean);
+    if (t.length < 3) t = l.split(/\s+/);
+    if (t.length < 3) return;
+    const rrp = toNum(t[1]), promo = toNum(t[2]);
+    if (!t[0] || !(promo > 0)) return; // صف العناوين أو سطر مش مفهوم
+    promos.set(t[0].toLowerCase(), { sku: t[0], rrp, promo });
+  });
+  const products = getAll(STORAGE_KEYS.PRODUCTS);
+  const pMap = new Map(products.map((p) => [p.id, p]));
+  const customers = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c.name]));
+  const skuSeen = new Set(products.filter((p) => p.sku).map((p) => p.sku.trim().toLowerCase()));
+  const returned = new Set();
+  validReturns().forEach((r) => r.items.forEach((ri) => returned.add(`${r.orderId}|${ri.productId}`)));
+  const rows = [], matched = new Set();
+  let seq = 0;
+  getReportOrders().forEach((o) => {
+    const disc = o.discountRate || 0;
+    o.items.forEach((it, idx) => {
+      const p = pMap.get(it.productId);
+      const pr = p && p.sku ? promos.get(p.sku.trim().toLowerCase()) : null;
+      if (!pr) return;
+      const delivered = it.status === 'delivered';
+      const when = String(delivered ? (it.deliveredAt || o.deliveredAt || o.date) : o.date).slice(0, 10);
+      if (delivered ? when < fromDate : !includeUndelivered) return;
+      matched.add(pr.sku.toLowerCase());
+      const old = it.unitPrice;
+      const status = Math.abs(old - pr.promo) < 0.01 ? 'already' : Math.abs(old - pr.rrp) <= Math.max(Number(tolerance) || 0, 0) ? 'apply' : 'other';
+      rows.push({
+        id: `p${++seq}`, status, orderId: o.id, itemIdx: idx, productId: it.productId, sku: pr.sku, customerName: customers.get(o.customerId) || '(محذوف)',
+        invoiceNo: o.invoiceNo || '', orderNumber: o.orderNumber || '', date: when, delivered, qty: it.qty, oldPrice: old, newPrice: pr.promo, rrp: pr.rrp, discountRate: disc,
+        delta: Math.round(it.qty * (pr.promo - old) * (1 - disc / 100) * 100) / 100, hasReturn: returned.has(`${o.id}|${it.productId}`), historical: !!o.historicalImport,
+      });
+    });
+  });
+  rows.sort((a, b) => a.customerName.localeCompare(b.customerName, 'ar') || a.date.localeCompare(b.date));
+  const list = [...promos.values()];
+  return {
+    rows, promoCount: promos.size,
+    notInCatalog: list.filter((x) => !skuSeen.has(x.sku.toLowerCase())).map((x) => x.sku),
+    noItems: list.filter((x) => skuSeen.has(x.sku.toLowerCase()) && !matched.has(x.sku.toLowerCase())).map((x) => x.sku),
+  };
+}
+
+/** بيطبّق الصفوف المختارة بس (من previewPromoPrices). أي صنف سعره اتغيّر من ساعة المعاينة بيتخطى. */
+function applyPromoPrices(chosen) {
+  const res = { orders: 0, items: 0, valueChange: 0, skipped: [] };
+  const byOrder = new Map();
+  chosen.forEach((r) => { if (!byOrder.has(r.orderId)) byOrder.set(r.orderId, []); byOrder.get(r.orderId).push(r); });
+  byOrder.forEach((list, orderId) => {
+    const o = getAll(STORAGE_KEYS.SALES_ORDERS).find((x) => x.id === orderId);
+    if (!o || o.voided) { res.skipped.push(`فاتورة ${list[0].invoiceNo || '-'}: مبقتش موجودة`); return; }
+    const items = o.items.map((it) => ({ ...it }));
+    const done = [];
+    list.forEach((r) => {
+      const it = items[r.itemIdx];
+      if (!it || it.productId !== r.productId || Math.abs(it.unitPrice - r.oldPrice) > 0.01) { res.skipped.push(`${r.sku} في فاتورة ${r.invoiceNo || '-'}: السعر اتغيّر من وقت المعاينة`); return; }
+      it.promoPrevPrice = it.unitPrice;
+      if (!(it.listPriceAtSale > r.newPrice)) it.listPriceAtSale = it.unitPrice; // عشان بادج "عرض" والنسخة للعميل يوضّحوا سعر اللست
+      it.unitPrice = r.newPrice;
+      done.push(r);
+    });
+    if (!done.length) return;
+    const subtotal = items.reduce((s, i) => s + i.qty * i.unitPrice, 0);
+    const discountAmount = subtotal * ((o.discountRate || 0) / 100);
+    const total = subtotal - discountAmount;
+    if (!updateRecord(STORAGE_KEYS.SALES_ORDERS, orderId, { items, subtotal, discountAmount, total, editedAt: new Date().toISOString() })) { res.skipped.push(`فاتورة ${o.invoiceNo || '-'}: تعذّر الحفظ`); return; }
+    logAudit(orderId, 'تطبيق سعر عرض', `${done.map((r) => `${r.sku}: ${r.oldPrice.toLocaleString()} ← ${r.newPrice.toLocaleString()}`).join(' | ')} — الإجمالي كان ${o.total.toLocaleString()} وبقى ${total.toLocaleString()}`);
+    res.orders++; res.items += done.length; res.valueChange += total - o.total;
+  });
+  res.valueChange = Math.round(res.valueChange * 100) / 100;
+  return res;
+}
+
+// ------------------------------------------------------------
 // النسخ الاحتياطي والاستيراد (Backup / Restore) - إجباري
 // ------------------------------------------------------------
 
@@ -2874,11 +2974,12 @@ export {
   // تارجت التجار + أساس تاريخ التحليل
   getStatusMismatchOrders, getDealerNotCounted,
   DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, setDealerFocus, deleteDealerTarget, getDealerAchieved, getDealerTargetProgress, getDealerTargetsOverview,
-  getAnalyticsDateBasis, setAnalyticsDateBasis,
+  getAnalyticsDateBasis, setAnalyticsDateBasis, productCodeAndDesc,
   // المحقق لشهر قديم + مزامنة الساب
   getAchievedOnlyKpis, isPeriodApproximate, getKpiDetailsFor, previewSapSync, applySapSync,
   buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp, getAtpWatchlist,
   splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
+  previewPromoPrices, applyPromoPrices,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
 };
