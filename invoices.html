@@ -163,6 +163,8 @@
   <div class="toolbar">
     <h2>آخر الفواتير</h2>
     <div style="display:flex; gap:6px; flex-wrap:wrap;">
+      <input type="month" id="exportMonth" style="max-width:150px;" title="الشهر المطلوب سحبه (الافتراضي الشهر الحالي)">
+      <button class="secondary" id="btnExportMonth" title="بيسحب كل طلبيات الشهر (شاملة المؤرشفة) بحالة الطلبية وحالة كل صنف والكمية والأسعار">⬇ سحب طلبيات الشهر (Excel)</button>
       <button class="danger" id="btnNewMonth">📁 بدء شهر جديد</button>
     </div>
   </div>
@@ -238,22 +240,6 @@
   </details>
 </div>
 
-<div class="card">
-  <details id="promoDetails">
-    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🏷 تطبيق أسعار عرض على أوردرات اتسلمت</summary>
-    <div style="margin-top:12px;">
-      <p class="muted">بيستبدل سعر اللست بسعر العرض على الأصناف <b>المسلَّمة من التاريخ ده</b> (تاريخ تسليم الصنف). خصم التاجر بيفضل متطبق فوق سعر العرض، وإجمالي الفاتورة ورصيد العميل بيتحسبوا من جديد. <b>المعاينة لوحدها مبتغيّرش حاجة</b>، وقبل التطبيق بينزّل نسخة احتياطية تلقائياً. الأعمدة: الكود ← RRP ← سعر العرض (القايمة اللي في الصورة متحمّلة جاهزة).</p>
-      <textarea id="promoText" rows="6" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center;">
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="الأصناف اللي اتسلمت في التاريخ ده أو بعده بتتعدّل. للي بعد 20 اتركه 21">من تاريخ تسليم (شامل) <input type="date" id="promoFrom" style="width:150px;"></label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;"><input type="checkbox" id="promoUndelivered" style="flex:none; width:auto;"> شمل الأصناف اللي لسه ماتسلمتش</label>
-        <button type="button" id="btnPromoPreview">🔍 عاين</button>
-      </div>
-      <div id="promoResult" style="margin-top:12px;"></div>
-    </div>
-  </details>
-</div>
-
 <div class="modal-overlay" id="itemsModalOverlay">
   <div class="modal-box">
     <div class="modal-box-header">
@@ -266,7 +252,7 @@
 
 <script type="module">
 import {
-  esc, getReportOrders,
+  esc, inPeriod, getReportOrders,
   initStorage, addCustomer, getAll, STORAGE_KEYS,
   recordSale, getProductStock, getEffectivePrice, getLatestStockStatus,
   ORDER_STATUSES, updateOrderStatus, updateOrderItemStatus,
@@ -276,8 +262,7 @@ import {
   updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS, setOrderItemDeliveredAt,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
   previewSapSync, applySapSync, buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp,
-  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability, productCodeAndDesc,
-  previewPromoPrices, applyPromoPrices,
+  splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
 } from './erp-data-layer.js';
 
 /** نص المنتج في القايمة: كود — وصف — سعر (الكود بيتضاف لو الاسم مش بادئ بيه) */
@@ -326,7 +311,7 @@ function buildItemsPanelHtml(order) {
     const hasOffer = it.listPriceAtSale && it.listPriceAtSale > it.unitPrice;
     return `
       <tr data-product-id="${it.productId}">
-        <td>${esc(p ? productLabel(p) : '?')}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
+        <td>${esc(p?.name || '?')}${hasOffer ? ` <span class="offer-badge">عرض</span>` : ''}</td>
         <td><input type="number" class="edit-item-qty" value="${it.qty}" min="1" style="width:60px;"></td>
         <td><input type="number" class="edit-item-price" value="${it.unitPrice}" min="0" style="width:80px;"></td>
         <td><select class="status-select ${it.status || 'unconfirmed'}" data-item-status="${order.id}" data-item-idx="${idx}">${statusOptionsHtml(it.status || 'unconfirmed')}</select></td>
@@ -978,6 +963,87 @@ function renderDeferred() {
   }));
 }
 
+/** كاتب ملف Excel (.xlsx) حقيقي من غير مكتبات: ZIP بدون ضغط + XML بسيط. rows: مصفوفة صفوف، الصف الأول عناوين. */
+function xlsxCrc(buf) {
+  if (!xlsxCrc.t) { xlsxCrc.t = new Uint32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; }); }
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = xlsxCrc.t[(c ^ buf[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function xlsxZip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0, cdSize = 0;
+  files.forEach((f) => {
+    const name = enc.encode(f.name), data = enc.encode(f.text), crc = xlsxCrc(data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(12, 0x21, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(lh.buffer), name, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(14, 0x21, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true); ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    cdSize += 46 + name.length; offset += 30 + name.length + data.length;
+  });
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function buildXlsx(rows, { sheetName = 'Sheet1', moneyCols = [], widths = [], totalRow = -1 } = {}) {
+  const X = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  const col = (i) => { let s = ''; for (i++; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + (i - 1) % 26) + s; return s; };
+  const sheetRows = rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => {
+    if (v === '' || v === null || v === undefined) return '';
+    const ref = col(ci) + (ri + 1);
+    const style = ri === 0 ? 1 : ri === totalRow ? (moneyCols.includes(ci) ? 3 : 4) : (moneyCols.includes(ci) ? 2 : 0);
+    return typeof v === 'number' ? `<c r="${ref}" s="${style}"><v>${v}</v></c>` : `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${X(v)}</t></is></c>`;
+  }).join('')}</row>`).join('');
+  const cols = widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
+  const last = col(Math.max(...rows.map((r) => r.length)) - 1);
+  const H = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  return xlsxZip([
+    { name: '[Content_Types].xml', text: H + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>' },
+    { name: '_rels/.rels', text: H + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: 'xl/workbook.xml', text: H + `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${X(sheetName)}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', text: H + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+    { name: 'xl/styles.xml', text: H + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCE6EA"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="4" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>' },
+    { name: 'xl/worksheets/sheet1.xml', text: H + `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView rightToLeft="1" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${cols}<sheetData>${sheetRows}</sheetData><autoFilter ref="A1:${last}${totalRow > 0 ? totalRow - 1 : rows.length}"/></worksheet>` },
+  ]);
+}
+
+const _now = new Date();
+document.getElementById('exportMonth').value = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
+document.getElementById('btnExportMonth').addEventListener('click', () => {
+  const period = document.getElementById('exportMonth').value;
+  if (!period) { alert('اختار الشهر الأول'); return; }
+  const customers = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map(c => [c.id, c]));
+  const products = new Map(getAll(STORAGE_KEYS.PRODUCTS).map(p => [p.id, p]));
+  const orders = getReportOrders().filter(o => inPeriod(o.date, period)).sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (!orders.length) { alert('مفيش طلبيات في الشهر ده'); return; }
+  const rd = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const rows = [['رقم الفاتورة', 'رقم الطلبية', 'تاريخ الطلبية', 'العميل', 'كود العميل', 'حالة الطلبية', 'مؤجّل', 'مؤرشف', 'كود الصنف', 'الصنف', 'حالة الصنف', 'تاريخ التسليم', 'الكمية', 'سعر الوحدة (اللست/العرض)', 'خصم الطلبية %', 'سعر الوحدة بعد الخصم', 'إجمالي السطر بعد الخصم']];
+  let totQty = 0, totVal = 0;
+  orders.forEach(o => {
+    const c = customers.get(o.customerId) || {};
+    const disc = o.discountRate || 0, f = 1 - disc / 100;
+    o.items.forEach(it => {
+      const p = products.get(it.productId) || {};
+      const line = rd(it.qty * it.unitPrice * f);
+      totQty += it.qty; totVal += line;
+      rows.push([o.invoiceNo || '', o.orderNumber || '', String(o.date).slice(0, 10), c.name || '(محذوف)', c.code || '', STATUS_META[o.status || 'unconfirmed'], o.deferred ? 'نعم' : '', o.archived ? 'نعم' : '',
+        p.sku || '', p.name || '(منتج محذوف)', STATUS_META[it.status || 'unconfirmed'], it.status === 'delivered' ? String(it.deliveredAt || o.date).slice(0, 10) : '',
+        it.qty, rd(it.unitPrice), disc, rd(it.unitPrice * f), line]);
+    });
+  });
+  rows.push(['الإجمالي', '', '', '', '', '', '', '', '', '', '', '', totQty, '', '', '', rd(totVal)]);
+  const blob = buildXlsx(rows, { sheetName: period, moneyCols: [13, 15, 16], totalRow: rows.length - 1, widths: [12, 14, 13, 24, 14, 14, 8, 8, 16, 46, 14, 14, 9, 16, 12, 16, 18] });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `طلبيات-${period}.xlsx`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
 document.getElementById('btnNewMonth').addEventListener('click', () => {
   if (confirm('تأكيد بدء شهر جديد؟ الفواتير اللي وصلت Release أو Delivered هتتحول أرشيف وتختفي من القوائم (بتفضل موجودة في كشوف حسابات العملاء). اللي لسه Unconfirmed أو Confirmed هتفضل ظاهرة عشان محتاجة متابعة.')) {
     const { archived, skipped } = startNewMonth();
@@ -1029,7 +1095,10 @@ function copyOrderForWhatsapp(orderId) {
   items.forEach((i, idx) => {
     const r = first + idx;
     const hasOffer = i.listPriceAtSale && i.listPriceAtSale > i.unitPrice;
-    const { code, desc } = productCodeAndDesc(i.product);
+    const full = clean(i.product?.name || '');
+    const sepAt = full.indexOf(' — ');
+    const code = i.product?.sku || (sepAt > -1 ? full.slice(0, sepAt) : '');
+    const desc = sepAt > -1 ? full.slice(sepAt + 3) : full;
     rows.push([
       idx + 1, text(code), text(desc), i.qty,
       num(hasOffer ? i.listPriceAtSale : i.unitPrice),
@@ -1265,66 +1334,6 @@ function runSyncCompare() {
   renderSync();
 }
 document.getElementById('btnSyncCompare').addEventListener('click', runSyncCompare);
-
-// ---------------- تطبيق أسعار عرض على أوردرات اتسلمت ----------------
-const PROMO_DEFAULT = ['WLZ2421SEG 21999 20899', 'MAF462B0 5999 4999', 'WGK254Z1EG 29999 27999', 'WGK254ZXEG 28999 27499', 'BGS21WHYG 9499 7999', 'MSM64110 1949 1499', 'BWD420HYG 12999 11999',
-  'BGL38WHYG 7999 6999', 'MCM3421M 3999 3499', 'KDN76XI3E9 56999 49999', 'KGP86FICE8 74999 67499', 'SMS46NB20V 35999 28799', 'SMP6EMC00V 48999 41999', 'SMS6ECI83T 53999 47999']
-  .map(l => l.split(' ').join('\t')).join('\n');
-document.getElementById('promoText').value = PROMO_DEFAULT;
-document.getElementById('promoFrom').value = '2026-10-21';
-let promoReport = null;
-const PROMO_TAG = { apply: ['جاهز', 'ok'], already: ['اتطبق قبل كده', 'warn'], other: ['سعره مختلف عن RRP', 'expired'] };
-
-function renderPromo() {
-  const r = promoReport, box = document.getElementById('promoResult');
-  const ready = r.rows.filter(x => x.status === 'apply'), other = r.rows.filter(x => x.status === 'other'), already = r.rows.filter(x => x.status === 'already');
-  const custs = new Set(ready.map(x => x.customerName)).size;
-  const delta = ready.reduce((s, x) => s + x.delta, 0);
-  box.innerHTML = `
-    <p><b>جاهز للتعديل:</b> ${ready.length} صنف (${custs} عميل) — أثره على الإجماليات: <b class="${delta < 0 ? 'bad-t' : ''}" dir="ltr">${fmtN(delta)}</b> ج.م (بعد خصم التاجر)<br>
-    <span class="muted">اتطبق قبل كده: ${already.length} | سعره مختلف عن RRP (مش متحدد تلقائي): ${other.length}</span></p>
-    ${r.notInCatalog.length ? `<p class="bad-t">⚠ أكواد مش في الكتالوج عندك: <span dir="ltr">${r.notInCatalog.map(esc).join('، ')}</span> (اتخطّت)</p>` : ''}
-    ${r.noItems.length ? `<p class="muted">أكواد مفيهاش أصناف مسلَّمة في المدة دي: <span dir="ltr">${r.noItems.map(esc).join('، ')}</span></p>` : ''}
-    ${r.rows.length ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-      <button type="button" class="secondary" id="promoSelReady">تحديد الجاهز</button><button type="button" class="secondary" id="promoSelNone">إلغاء التحديد</button>
-      <button type="button" id="btnPromoApply" disabled>✅ طبّق المحدد (0)</button></div>
-    <div style="overflow-x:auto;"><table class="sync-items"><thead><tr><th></th><th>العميل</th><th>فاتورة / طلبية</th><th>تسليم</th><th>الصنف</th><th>الكمية</th><th>السعر الحالي</th><th>سعر العرض</th><th>الأثر</th><th>الحالة</th></tr></thead><tbody>
-      ${r.rows.map((x, i) => `<tr>
-        <td>${x.status === 'already' ? '' : `<input type="checkbox" class="promo-chk" data-i="${i}" ${x.status === 'apply' ? 'checked' : ''}>`}</td>
-        <td>${esc(x.customerName)}</td><td dir="ltr">#${esc(x.invoiceNo || '-')}${x.orderNumber ? ' / ' + esc(x.orderNumber) : ''}</td>
-        <td>${esc(x.delivered ? x.date : 'لسه')}</td><td dir="ltr"><b>${esc(x.sku)}</b></td><td>${x.qty}</td>
-        <td class="${x.status === 'other' ? 'bad' : ''}">${fmtN(x.oldPrice)}</td><td>${fmtN(x.newPrice)}</td><td dir="ltr">${x.status === 'already' ? '—' : fmtN(x.delta)}</td>
-        <td><span class="countdown ${PROMO_TAG[x.status][1]}">${PROMO_TAG[x.status][0]}</span>${x.hasReturn ? ' <span class="bad-t" title="في مرتجع على الصنف ده، قيمة المرتجع هتفضل بالسعر القديم">↩ فيه مرتجع</span>' : ''}${x.historical ? ' <span class="muted">تاريخي</span>' : ''}</td></tr>`).join('')}
-    </tbody></table></div>` : '<p class="muted">مفيش أصناف مطابقة في الفترة دي.</p>'}`;
-  const upd = () => { const n = box.querySelectorAll('.promo-chk:checked').length, b = document.getElementById('btnPromoApply'); if (b) { b.textContent = `✅ طبّق المحدد (${n})`; b.disabled = n === 0; } };
-  box.querySelectorAll('.promo-chk').forEach(c => c.addEventListener('change', upd));
-  const sr = document.getElementById('promoSelReady'), sn = document.getElementById('promoSelNone');
-  if (sr) sr.addEventListener('click', () => { box.querySelectorAll('.promo-chk').forEach(c => { c.checked = promoReport.rows[c.dataset.i].status === 'apply'; }); upd(); });
-  if (sn) sn.addEventListener('click', () => { box.querySelectorAll('.promo-chk').forEach(c => { c.checked = false; }); upd(); });
-  const ap = document.getElementById('btnPromoApply');
-  if (ap) ap.addEventListener('click', () => {
-    const chosen = [...box.querySelectorAll('.promo-chk:checked')].map(c => promoReport.rows[c.dataset.i]);
-    if (!chosen.length) return;
-    const d = chosen.reduce((s, x) => s + x.delta, 0);
-    if (!confirm(`هتتعدّل أسعار ${chosen.length} صنف، وإجماليات الفواتير هتتغيّر بمقدار ${fmtN(d)} ج.م (وأرصدة العملاء معاها). هننزّل نسخة احتياطية الأول تلقائياً. تكمل؟`)) return;
-    downloadBackup();
-    const res = applyPromoPrices(chosen);
-    alert(`تم ✅\nاتعدّل ${res.items} صنف في ${res.orders} فاتورة\nأثر على الإجماليات: ${fmtN(res.valueChange)} ج.م${res.skipped.length ? '\n⚠ اتخطّى:\n' + res.skipped.join('\n') : ''}`);
-    refresh();
-    runPromoPreview();
-  });
-  upd();
-}
-
-function runPromoPreview() {
-  const text = document.getElementById('promoText').value, from = document.getElementById('promoFrom').value;
-  if (!text.trim()) { alert('الصق قايمة الأسعار الأول'); return; }
-  if (!from) { alert('حدد تاريخ التسليم'); return; }
-  promoReport = previewPromoPrices(text, { fromDate: from, includeUndelivered: document.getElementById('promoUndelivered').checked });
-  if (!promoReport.promoCount) { document.getElementById('promoResult').innerHTML = '<p class="muted">⚠ مفهمتش القايمة. كل سطر: الكود ثم RRP ثم سعر العرض.</p>'; promoReport = null; return; }
-  renderPromo();
-}
-document.getElementById('btnPromoPreview').addEventListener('click', runPromoPreview);
 
 addLineItemRow();
 refresh();
