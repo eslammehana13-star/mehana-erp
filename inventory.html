@@ -148,6 +148,12 @@
   </form>
 </div>
 <div class="card">
+  <h2>🏷 تطبيق العروض دفعة واحدة</h2>
+  <p class="muted">الصق سطر لكل صنف: <b>الكود ← سعر اللست (اختياري) ← سعر العرض</b> (يعني عمودين أو تلاتة). المطابقة بالكود، وبيتفعّل العرض على كل صنف. لو سعر اللست اللي لصقته مختلف عن السعر عندك هينبّهك.</p>
+  <textarea id="bulkOffers" rows="6" placeholder="مثال:&#10;SMS46NB20V&#9;35999&#9;28799&#10;MSM64110&#9;1949&#9;1499" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnBulkOffers" style="margin-top:8px;">🏷 تفعيل كل العروض</button>
+</div>
+<div class="card">
   <div class="toolbar">
     <h2>عرض على منتج (سعر مؤقت)</h2>
   </div>
@@ -508,6 +514,34 @@ document.getElementById('btnBulkProducts').addEventListener('click', () => {
   alert(`تم إضافة ${r.added} منتج ✅` + (r.skipped.length ? `\nاتخطّيت ${r.skipped.length} مكرر: ${r.skipped.slice(0, 15).join('، ')}` : ''));
 });
 
+
+document.getElementById('btnBulkOffers').addEventListener('click', () => {
+  const box = document.getElementById('bulkOffers');
+  if (!box.value.trim()) { alert('الصق العروض الأول'); return; }
+  const num = (v) => Number(String(v ?? '').replace(/[,\s]/g, ''));
+  const bySku = new Map(getAll(STORAGE_KEYS.PRODUCTS).filter(p => p.sku).map(p => [p.sku.trim().toLowerCase(), p]));
+  const ok = [], notFound = [], bad = [], listDiff = [];
+  box.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(l => {
+    const t = l.split(/\t+|;|\s{2,}/).map(x => x.trim()).filter(Boolean);
+    const parts = t.length >= 2 ? t : l.split(/\s+/);
+    if (parts.length < 2) return;
+    const code = parts[0], offer = num(parts[parts.length - 1]), rrp = parts.length >= 3 ? num(parts[1]) : null;
+    if (!(offer > 0)) { if (!/[A-Za-z]{2}/.test(parts[parts.length - 1])) bad.push(code); return; }
+    const p = bySku.get(code.toLowerCase());
+    if (!p) { notFound.push(code); return; }
+    if (rrp && Math.abs(rrp - p.basePrice) > 0.5) listDiff.push(`${code} (عندك ${p.basePrice} واللي لصقته ${rrp})`);
+    setProductOffer(p.id, offer);
+    ok.push(code);
+  });
+  if (!ok.length && !notFound.length && !bad.length) { alert('مقدرتش أفهم اللي الصقته: لازم كل سطر فيه الكود وسعر العرض'); return; }
+  box.value = '';
+  refresh();
+  let msg = `تم تفعيل ${ok.length} عرض ✅`;
+  if (notFound.length) msg += `\n⚠ ${notFound.length} كود مش موجود: ${notFound.slice(0, 10).join('، ')}`;
+  if (bad.length) msg += `\n⚠ سعر مش مفهوم: ${bad.slice(0, 10).join('، ')}`;
+  if (listDiff.length) msg += `\n⚠ سعر اللست مختلف (حدّث قايمة الأسعار الأول): ${listDiff.slice(0, 8).join('، ')}`;
+  alert(msg);
+});
 document.getElementById('showArchived').addEventListener('change', renderProductsTable);
 document.getElementById('showBalance').addEventListener('change', (e) => document.getElementById('mainTable').classList.toggle('hide-bal', !e.target.checked));
 document.getElementById('btnSyncCatalog').addEventListener('click', () => {
