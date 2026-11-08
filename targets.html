@@ -102,7 +102,7 @@
     <tbody id="setupBody"></tbody>
   </table></div>
   <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px;">
-    <label style="font-size:13px; display:flex; align-items:center; gap:6px;">ضريبة % (لقيمة MDA و SDA) <input type="number" id="setup_vat" value="14" min="0" max="100" step="0.5" style="width:70px;"></label>
+    <label style="font-size:13px; display:flex; align-items:center; gap:6px;">ضريبة % (لقيمة Promo و NonPromo) <input type="number" id="setup_vat" value="14" min="0" max="100" step="0.5" style="width:70px;"></label>
     <span class="muted" id="setupWeightSum"></span>
     <button type="button" id="btnSaveSetup">💾 حفظ تارجت الشهر</button>
   </div>
@@ -219,6 +219,8 @@ const KPI_TYPE_LABELS = {
   active_dealers: 'عملاء نشطين',
   manual_percent: 'نسبة يدوية',
   white_space_dealers: 'White Space',
+  promo_value: 'قيمة برومو',
+  nonpromo_value: 'قيمة نون برومو',
 };
 
 initStorage();
@@ -405,7 +407,7 @@ document.getElementById('targetForm').addEventListener('submit', (e) => {
 
 // ---------------- لوحة "نسبة تحقيقي" ----------------
 const fmtNum = (n) => { const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M'; if (a >= 1e3) return (n / 1e3).toFixed(2) + 'K'; return (Math.round(n * 100) / 100).toLocaleString(); };
-const isValueKpi = (k) => k.metricType === 'category_value' || k.metricType === 'total_value';
+const isValueKpi = (k) => ['category_value', 'total_value', 'promo_value', 'nonpromo_value'].includes(k.metricType);
 const fmtKpi = (k, n) => k.metricType === 'manual_percent' ? `${Math.round(n)}%` : isValueKpi(k) ? fmtNum(n) : Math.round(n).toLocaleString();
 
 function gaugeSvg(pct, actualLabel, maxLabel) {
