@@ -1615,6 +1615,9 @@ function productCodeAndDesc(p) {
 }
 
 /** كل أسطر المبيعات المسلَّمة فعلياً (الصنف حالته Delivered) بتاريخ تسليمها، وقيمتها بعد خصم الطلبية (شاملة الضريبة) */
+/** صنف اتباع بسعر عرض: سعر البيع أقل من سعر اللست وقت البيع (نفس منطق بادج "عرض") */
+function isPromoItem(it) { return !!(it && it.listPriceAtSale && it.listPriceAtSale > it.unitPrice + 0.01); }
+
 function getDeliveredLines() {
   const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
   const lines = [];
@@ -1626,7 +1629,7 @@ function getDeliveredLines() {
       lines.push({
         orderId: o.id, customerId: o.customerId, repId: o.repId || null, productId: it.productId,
         productName: p ? p.name : '(منتج محذوف)', category: p ? p.category : '',
-        qty: it.qty, value: it.qty * it.unitPrice * factor, date: it.deliveredAt || o.deliveredAt || o.date, historical: !!o.historicalImport && (!it.deliveredAt || !!it.deliveredProxy),
+        qty: it.qty, value: it.qty * it.unitPrice * factor, date: it.deliveredAt || o.deliveredAt || o.date, historical: !!o.historicalImport && (!it.deliveredAt || !!it.deliveredProxy), promo: isPromoItem(it),
       });
     });
   });
@@ -1637,8 +1640,8 @@ function getDeliveredLines() {
 function getDeliveredReturns() {
   const orders = getReportOrders();
   const oMap = new Map(orders.map((o) => [o.id, o]));
-  const delivered = new Set();
-  orders.forEach((o) => o.items.forEach((it) => { if (it.status === 'delivered') delivered.add(`${o.id}|${it.productId}`); }));
+  const delivered = new Map();
+  orders.forEach((o) => o.items.forEach((it) => { if (it.status === 'delivered') delivered.set(`${o.id}|${it.productId}`, isPromoItem(it)); }));
   const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
   const out = [];
   validReturns().forEach((r) => {
@@ -1647,7 +1650,7 @@ function getDeliveredReturns() {
     r.items.forEach((ri) => {
       if (!delivered.has(`${r.orderId}|${ri.productId}`)) return;
       const p = pMap.get(ri.productId);
-      out.push({ orderId: r.orderId, customerId: o.customerId, repId: o.repId || null, productId: ri.productId, category: p ? p.category : '', qty: ri.qty, value: ri.qty * (ri.unitPrice || 0), date: r.date });
+      out.push({ orderId: r.orderId, customerId: o.customerId, repId: o.repId || null, productId: ri.productId, category: p ? p.category : '', qty: ri.qty, value: ri.qty * (ri.unitPrice || 0), date: r.date, promo: !!delivered.get(`${r.orderId}|${ri.productId}`) });
     });
   });
   return out;
@@ -1661,7 +1664,7 @@ function getKpiDetailsFor(kpi) {
   if (!kpi || kpi.metricType === 'manual_percent') return null;
   if (kpi.metricType === 'white_space_dealers') return { kind: 'whitespace', rows: getWhiteSpaceDetail(kpi) };
   const customers = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c.name]));
-  const lines = getDeliveredLines().filter((l) => inPeriod(l.date, kpi.period) && (!kpi.category || kpi.metricType === 'total_value' || hasCat(l.category, kpi.category)));
+  const lines = getDeliveredLines().filter((l) => inPeriod(l.date, kpi.period) && (kpi.metricType === 'promo_value' ? l.promo : kpi.metricType === 'nonpromo_value' ? !l.promo : (!kpi.category || kpi.metricType === 'total_value' || hasCat(l.category, kpi.category))));
   const vatDiv = 1 + (kpi.vatRate || 0) / 100;
   const agg = (keyFn, nameFn) => {
     const m = new Map();
@@ -1678,12 +1681,12 @@ function getPeriodTotalValue(period, vatRate = 14) {
 
 /** قالب KPIs الشهرية: نفس لوحة الـ Power BI */
 const TARGET_TEMPLATE = [
-  { key: 'dealers', name: 'Dealers', metricType: 'active_dealers', defaultWeight: 10, unit: 'تاجر' },
-  { key: 'fs90', name: 'FS90', metricType: 'category_count', category: 'بوتاجازات', defaultWeight: 20, unit: 'قطعة' },
-  { key: 'mda', name: 'MDA', metricType: 'category_value', category: 'MDA', defaultWeight: 35, unit: 'ج.م' },
-  { key: 'overdue', name: 'OverDue', metricType: 'manual_percent', defaultWeight: 10, unit: '%' },
-  { key: 'sda', name: 'SDA', metricType: 'category_value', category: 'SDA', defaultWeight: 10, unit: 'ج.م' },
-  { key: 'whitespace', name: 'WhiteSpace', metricType: 'white_space_dealers', defaultWeight: 15, unit: 'تاجر' },
+  { key: 'dealers', name: 'Dealers', metricType: 'active_dealers', defaultWeight: 0, unit: 'تاجر' },
+  { key: 'fs90', name: 'FS90', metricType: 'category_count', category: 'بوتاجازات', defaultWeight: 0, unit: 'قطعة' },
+  { key: 'promo', name: 'Promo', metricType: 'promo_value', defaultWeight: 0, defaultTarget: 2284800, unit: 'ج.م' },
+  { key: 'nonpromo', name: 'NonPromo', metricType: 'nonpromo_value', defaultWeight: 0, defaultTarget: 4435200, unit: 'ج.م' },
+  { key: 'overdue', name: 'OverDue', metricType: 'manual_percent', defaultWeight: 0, unit: '%' },
+  { key: 'whitespace', name: 'WhiteSpace', metricType: 'white_space_dealers', defaultWeight: 0, unit: 'تاجر' },
 ];
 
 function previousPeriod(period) {
@@ -1698,13 +1701,13 @@ function getMonthlyTargetsForm(period) {
   const cur = all.filter((k) => k.period === period), prev = all.filter((k) => k.period === previousPeriod(period));
   return TARGET_TEMPLATE.map((t) => {
     const saved = cur.find((k) => k.name === t.name), src = saved || prev.find((k) => k.name === t.name);
-    return { ...t, weight: src ? src.weight : t.defaultWeight, targetValue: src ? src.targetValue : '', manualPercent: src && src.manualPercent !== undefined && src.manualPercent !== null ? src.manualPercent : 100, saved: !!saved, fromPrev: !saved && !!src };
+    return { ...t, weight: src ? src.weight : t.defaultWeight, targetValue: src ? src.targetValue : (t.defaultTarget !== undefined ? t.defaultTarget : ''), manualPercent: src && src.manualPercent !== undefined && src.manualPercent !== null ? src.manualPercent : 100, saved: !!saved, fromPrev: !saved && !!src };
   });
 }
 
 /** حفظ تارجت الشهر: بيستبدل KPIs القالب بتاعة الشهر ده (الـ KPIs المخصصة بتفضل زي ما هي) */
 function saveMonthlyTargets(period, rows, { vatRate = 14 } = {}) {
-  const names = TARGET_TEMPLATE.map((t) => t.name);
+  const names = [...TARGET_TEMPLATE.map((t) => t.name), 'MDA', 'SDA']; // MDA/SDA القديمين بيتشالوا لو الشهر اتحفظ تاني
   saveAll(STORAGE_KEYS.KPIS, getAll(STORAGE_KEYS.KPIS).filter((k) => !(k.period === period && names.includes(k.name))));
   rows.forEach((r) => {
     const t = TARGET_TEMPLATE.find((x) => x.key === r.key);
@@ -1712,7 +1715,7 @@ function saveMonthlyTargets(period, rows, { vatRate = 14 } = {}) {
     addKpi({
       period, name: t.name, metricType: t.metricType, category: t.category || null, weight: Number(r.weight) || 0,
       targetValue: t.metricType === 'manual_percent' ? 100 : Number(r.targetValue) || 0,
-      vatRate: t.metricType === 'category_value' ? vatRate : 0, minFamilies: 4,
+      vatRate: ['category_value', 'promo_value', 'nonpromo_value'].includes(t.metricType) ? vatRate : 0, minFamilies: 4,
       manualPercent: t.metricType === 'manual_percent' ? (r.manualPercent === '' || r.manualPercent === undefined ? 100 : Number(r.manualPercent)) : null,
     });
   });
@@ -2077,13 +2080,14 @@ function computeKpiAchieved(kpi) {
   if (kpi.metricType === 'active_dealers') return new Set(lines.map((l) => l.customerId)).size;
   if (kpi.metricType === 'white_space_dealers') return getWhiteSpaceDetail(kpi).length;
 
-  const scoped = (x) => !kpi.category || kpi.metricType === 'total_value' || hasCat(x.category, kpi.category);
+  const promoType = kpi.metricType === 'promo_value' || kpi.metricType === 'nonpromo_value';
+  const scoped = (x) => promoType ? (!!x.promo === (kpi.metricType === 'promo_value')) : (!kpi.category || kpi.metricType === 'total_value' || hasCat(x.category, kpi.category));
   const sumValue = (arr) => arr.filter(scoped).reduce((s, x) => s + x.value, 0);
   const sumQty = (arr) => arr.filter(scoped).reduce((s, x) => s + x.qty, 0);
   const vatDiv = 1 + (kpi.vatRate || 0) / 100;
   const deduction = 1 - (kpi.deductionPercent || 0) / 100;
 
-  if (kpi.metricType === 'total_value' || kpi.metricType === 'category_value') return ((sumValue(lines) - sumValue(rets)) / vatDiv) * deduction;
+  if (kpi.metricType === 'total_value' || kpi.metricType === 'category_value' || promoType) return ((sumValue(lines) - sumValue(rets)) / vatDiv) * deduction;
   if (kpi.metricType === 'category_count') return sumQty(lines) - sumQty(rets);
   return 0;
 }
@@ -2234,7 +2238,7 @@ function getDealerTargetsOverview(year, now = new Date()) {
 /** المحقق لكل KPI في القالب لشهر معيّن، من غير تارجت ولا وزن (للرجوع لأي شهر قديم). OverDue بيتخطى لأنه يدوي */
 function getAchievedOnlyKpis(period, { vatRate = 14 } = {}) {
   return TARGET_TEMPLATE.filter((t) => t.metricType !== 'manual_percent').map((t) => {
-    const kpi = { id: null, period, name: t.name, metricType: t.metricType, category: t.category || null, weight: 0, targetValue: 0, deductionPercent: 0, minFamilies: 4, manualPercent: null, vatRate: t.metricType === 'category_value' ? (Number(vatRate) || 0) : 0 };
+    const kpi = { id: null, period, name: t.name, metricType: t.metricType, category: t.category || null, weight: 0, targetValue: 0, deductionPercent: 0, minFamilies: 4, manualPercent: null, vatRate: ['category_value', 'promo_value', 'nonpromo_value'].includes(t.metricType) ? (Number(vatRate) || 0) : 0 };
     return { ...kpi, unit: t.unit, achieved: Math.round(computeKpiAchieved(kpi) * 100) / 100 };
   });
 }
