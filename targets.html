@@ -57,10 +57,15 @@
   <a href="customers.html">💰 العملاء</a>
   <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html">📄 الفواتير</a>
-  <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html" class="active">🎯 الأهداف</a>
   <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html">📊 تحليل البيانات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
 </nav>
 
 
@@ -102,7 +107,7 @@
     <tbody id="setupBody"></tbody>
   </table></div>
   <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px;">
-    <label style="font-size:13px; display:flex; align-items:center; gap:6px;">ضريبة % (لقيمة Promo و NonPromo) <input type="number" id="setup_vat" value="14" min="0" max="100" step="0.5" style="width:70px;"></label>
+    <label style="font-size:13px; display:flex; align-items:center; gap:6px;">ضريبة % (لقيمة MDA و SDA) <input type="number" id="setup_vat" value="14" min="0" max="100" step="0.5" style="width:70px;"></label>
     <span class="muted" id="setupWeightSum"></span>
     <button type="button" id="btnSaveSetup">💾 حفظ تارجت الشهر</button>
   </div>
@@ -115,102 +120,13 @@
   </div>
 </div>
 
-<details class="card"><summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🛠 متقدم: KPI مخصص وجدول الـ KPIs التفصيلي</summary>
-<div class="card">
-  <h2>📊 تارجتك الشهري (KPIs)</h2>
-  <p class="muted">كل شهر حدد KPIs مختلفة بأوزان مختلفة — بيتحسب المحقق تلقائياً من الفواتير الحقيقية.</p>
-  <form id="kpiForm">
-    <input type="month" id="kpi_period" required>
-    <input type="text" id="kpi_name" placeholder="اسم الـ KPI (مثلاً: MDA / بوتاجازات / Active Dealers)" required>
-    <select id="kpi_type">
-      <option value="total_value">إجمالي قيمة المبيعات</option>
-      <option value="category_value">قيمة تصنيف معيّن</option>
-      <option value="category_count">عدد قطع تصنيف معيّن</option>
-      <option value="active_dealers">عدد العملاء النشطين (Delivered)</option>
-      <option value="white_space_dealers">White Space (عملاء اشتروا كذا فاميلي أو أكتر)</option>
-    </select>
-    <input type="text" id="kpi_category" placeholder="التصنيف (لو النوع تصنيف)" list="categoryList">
-    <datalist id="categoryList"></datalist>
-    <input type="number" id="kpi_minfamilies" placeholder="كام فاميلي أو أكتر (White Space، أقل حد 4)" min="4" value="4">
-    <input type="number" id="kpi_weight" placeholder="نسبة الوزن %" min="0" max="100" step="0.5" required>
-    <input type="number" id="kpi_target" placeholder="قيمة الهدف" min="1" required>
-    <label style="display:flex; align-items:center; gap:6px; font-size:14px;" title="للـ KPIs المالية بس (إجمالي قيمة / قيمة تصنيف) — بيستخرج الضريبة من سعر اللست قبل المقارنة بالهدف">
-      ضريبة % (للقيم المالية)
-      <input type="number" id="kpi_vat" min="0" max="100" step="0.5" value="14" style="width:70px;">
-    </label>
-    <input type="number" id="kpi_deduction" placeholder="خصم إضافي %  (اختياري، بعد الضريبة)" min="0" max="100" step="0.5" value="0">
-    <button type="submit">إضافة KPI</button>
-  </form>
-</div>
-
-<div class="card">
-  <div class="toolbar">
-    <h2>الدرجة الكلية لشهر</h2>
-    <input type="month" id="scorecard_period" style="max-width:160px;">
-  </div>
-  <table>
-    <thead><tr><th>الـ KPI</th><th>النوع</th><th>الهدف</th><th>المحقق</th><th>الوزن %</th><th>الإنجاز</th><th>الدرجة المرجّحة</th><th></th></tr></thead>
-    <tbody id="kpiTable"></tbody>
-  </table>
-  <p class="muted" id="kpiEmpty" style="display:none">لا توجد KPIs لهذا الشهر بعد.</p>
-  <div id="overallScoreBox" style="margin-top:10px; font-weight:700;"></div>
-</div>
-
-</details>
-
-<div class="card">
-  <h2>إضافة مندوب مبيعات</h2>
-  <form id="repForm">
-    <input type="text" id="rep_name" placeholder="اسم المندوب" required>
-    <input type="text" id="rep_phone" placeholder="رقم الهاتف">
-    <button type="submit">إضافة</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>تحديد هدف جديد</h2>
-  <form id="targetForm">
-    <select id="tg_entityType">
-      <option value="rep">مندوب مبيعات</option>
-      <option value="customer">عميل</option>
-    </select>
-    <select id="tg_entity" required></select>
-    <input type="month" id="tg_period" required>
-    <input type="number" id="tg_amount" placeholder="قيمة الهدف" min="1" required>
-    <input type="number" id="tg_commission" placeholder="نسبة العمولة %" min="0" step="0.5" value="0">
-    <label style="display:flex; align-items:center; gap:6px; font-size:14px;" title="بيستخرج الضريبة من سعر اللست قبل المقارنة بالهدف وحساب العمولة">
-      ضريبة %
-      <input type="number" id="tg_vat" min="0" max="100" step="0.5" value="14" style="width:70px;">
-    </label>
-    <button type="submit">حفظ الهدف</button>
-  </form>
-</div>
-
-<div class="card">
-  <div class="toolbar">
-    <h2>متابعة الأهداف</h2>
-    <div>
-    </div>
-  </div>
-  <table>
-    <thead>
-      <tr><th>الجهة</th><th>النوع</th><th>الفترة</th><th>الهدف</th><th>المحقق</th><th>نسبة الإنجاز</th><th>العمولة</th><th></th></tr>
-    </thead>
-    <tbody id="targetsTable"></tbody>
-  </table>
-  <p class="muted" id="emptyState" style="display:none">لا توجد أهداف بعد.</p>
-</div>
 
 <script type="module">
 import {
-  esc, inPeriod, getReportOrders,
-  initStorage, addRep, getAll, STORAGE_KEYS,
-  setTarget, getTargetProgress, deleteRecord,
-  addKpi, getMonthlyScorecard,
+  esc, initStorage, getMonthlyScorecard,
   getKpiDetails, getKpiDetailsFor, getAchievedOnlyKpis, isPeriodApproximate, getPeriodTotalValue, getMonthlyTargetsForm, saveMonthlyTargets, TARGET_TEMPLATE,
   getWhiteSpaceGroups, setWhiteSpaceGroups, setSetting, getTargetCap, setTargetCap,
-  downloadBackup, importBackup,
-} from './erp-data-layer.js';
+  } from './erp-data-layer.js';
 
 const KPI_TYPE_LABELS = {
   total_value: 'إجمالي قيمة',
@@ -219,8 +135,6 @@ const KPI_TYPE_LABELS = {
   active_dealers: 'عملاء نشطين',
   manual_percent: 'نسبة يدوية',
   white_space_dealers: 'White Space',
-  promo_value: 'قيمة برومو',
-  nonpromo_value: 'قيمة نون برومو',
 };
 
 initStorage();
@@ -231,183 +145,14 @@ function currentPeriod() {
 }
 
 function refresh() {
-  renderEntitySelect();
-  renderTargetsTable();
-  renderCategoryList();
-  renderScorecard();
   renderDashboard();
   renderSetup();
   document.getElementById('wsGroups').value = wsToText(getWhiteSpaceGroups());
 }
 
-function renderCategoryList() {
-  const categories = [...new Set(getAll(STORAGE_KEYS.PRODUCTS).flatMap(p => String(p.category || '').split('|').map(x => x.trim())).filter(Boolean))];
-  document.getElementById('categoryList').innerHTML = categories.map(c => `<option value="${esc(c)}">`).join('');
-}
-
-function renderEntitySelect() {
-  const type = document.getElementById('tg_entityType').value;
-  const list = type === 'rep' ? getAll(STORAGE_KEYS.REPS) : getAll(STORAGE_KEYS.CUSTOMERS);
-  document.getElementById('tg_entity').innerHTML = list.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-}
-
-document.getElementById('tg_entityType').addEventListener('change', renderEntitySelect);
-
-function entityName(entityType, entityId) {
-  const list = entityType === 'rep' ? getAll(STORAGE_KEYS.REPS) : getAll(STORAGE_KEYS.CUSTOMERS);
-  return esc(list.find(e => e.id === entityId)?.name || '(محذوف)');
-}
-
-function renderTargetsTable() {
-  const targets = getAll(STORAGE_KEYS.TARGETS);
-  const tbody = document.getElementById('targetsTable');
-  document.getElementById('emptyState').style.display = targets.length ? 'none' : 'block';
-
-  tbody.innerHTML = targets.map(t => {
-    const p = getTargetProgress(t.id);
-    const pct = Math.min(p.percentage, 100);
-    const fullClass = p.percentage >= 100 ? 'full' : '';
-    return `
-      <tr>
-        <td>${entityName(t.entityType, t.entityId)}</td>
-        <td>${t.entityType === 'rep' ? 'مندوب' : 'عميل'}</td>
-        <td>${t.period}</td>
-        <td>${t.targetAmount.toLocaleString()}${t.vatRate ? ` <span class="muted">(صافي بعد ${t.vatRate}%)</span>` : ''}</td>
-        <td>${p.achieved.toLocaleString()}</td>
-        <td>
-          <div class="progress-wrap">
-            <div class="progress-fill ${fullClass}" style="width:${pct}%"></div>
-            <div class="progress-label">${p.percentage}%</div>
-          </div>
-        </td>
-        <td>${p.commission.toLocaleString()}</td>
-        <td class="row-actions"><button class="danger" data-del="${t.id}">حذف</button></td>
-      </tr>`;
-  }).join('');
-
-  tbody.querySelectorAll('[data-del]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (!confirm('تأكيد حذف الهدف ده؟')) return;
-      deleteRecord(STORAGE_KEYS.TARGETS, btn.dataset.del);
-      refresh();
-    });
-  });
-}
-
-document.getElementById('kpiForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const metricType = document.getElementById('kpi_type').value;
-  const category = document.getElementById('kpi_category').value.trim();
-  if ((metricType === 'category_value' || metricType === 'category_count') && !category) {
-    alert('حدد التصنيف لهذا النوع من الـ KPI');
-    return;
-  }
-  const minFamilies = Number(document.getElementById('kpi_minfamilies').value) || 4;
-  if (metricType === 'white_space_dealers' && minFamilies < 4) {
-    alert('أقل حد مسموح به هو "أكتر من 4 فاميلي"');
-    return;
-  }
-  addKpi({
-    period: document.getElementById('kpi_period').value,
-    name: document.getElementById('kpi_name').value.trim(),
-    metricType,
-    category: category || null,
-    weight: Number(document.getElementById('kpi_weight').value),
-    targetValue: Number(document.getElementById('kpi_target').value),
-    deductionPercent: Number(document.getElementById('kpi_deduction').value) || 0,
-    minFamilies,
-    vatRate: Number(document.getElementById('kpi_vat').value) || 0,
-  });
-  e.target.reset();
-  document.getElementById('kpi_period').value = document.getElementById('scorecard_period').value;
-  refresh();
-});
-
-function renderScorecard() {
-  const period = document.getElementById('scorecard_period').value || currentPeriod();
-  document.getElementById('scorecard_period').value = period;
-  const { kpis, overallScore, totalWeight } = getMonthlyScorecard(period);
-
-  const tbody = document.getElementById('kpiTable');
-  document.getElementById('kpiEmpty').style.display = kpis.length ? 'none' : 'block';
-
-  tbody.innerHTML = kpis.map(k => {
-    const pct = Math.min(k.percentage, 100);
-    const fullClass = k.percentage >= 100 ? 'full' : '';
-    return `
-      <tr>
-        <td>${esc(k.name)}${k.category ? ` <span class="muted">(${esc(k.category)})</span>` : ''}</td>
-        <td>${KPI_TYPE_LABELS[k.metricType] || k.metricType}${(k.metricType === 'total_value' || k.metricType === 'category_value') && k.vatRate ? ` <span class="muted">(صافي بعد ${k.vatRate}% ضريبة)</span>` : ''}</td>
-        <td>${k.targetValue.toLocaleString()}</td>
-        <td>${k.achieved.toLocaleString()}</td>
-        <td>${k.weight}%</td>
-        <td>
-          <div class="progress-wrap">
-            <div class="progress-fill ${fullClass}" style="width:${pct}%"></div>
-            <div class="progress-label">${k.percentage}%</div>
-          </div>
-        </td>
-        <td>${k.weightedScore}%</td>
-        <td class="row-actions"><button class="danger" data-del-kpi="${k.id}">حذف</button></td>
-      </tr>
-      ${k.metricType === 'white_space_dealers' && k.whiteSpaceCustomers && k.whiteSpaceCustomers.length ? `
-      <tr>
-        <td colspan="8" style="padding-top:0;">
-          <div class="muted" style="font-size:12.5px;">
-            🏆 حققوها (${k.minFamilies || 4} فاميلي أو أكتر): ${k.whiteSpaceCustomers.map(c => `${esc(c.name)} (${c.familyCount})`).join('، ')}
-          </div>
-        </td>
-      </tr>` : ''}
-      ${k.metricType === 'white_space_dealers' && (!k.whiteSpaceCustomers || k.whiteSpaceCustomers.length === 0) ? `
-      <tr><td colspan="8" style="padding-top:0;"><div class="muted" style="font-size:12.5px;">لسه مفيش عميل حققها الشهر ده.</div></td></tr>` : ''}`;
-  }).join('');
-
-  tbody.querySelectorAll('[data-del-kpi]').forEach(btn => btn.addEventListener('click', () => {
-    if (!confirm('تأكيد حذف الـ KPI ده من الشهر؟')) return;
-    deleteRecord(STORAGE_KEYS.KPIS, btn.dataset.delKpi);
-    refresh();
-  }));
-
-  const weightNote = totalWeight !== 100 ? ` (مجموع الأوزان حالياً ${totalWeight}% — المفروض يكون 100%)` : '';
-  document.getElementById('overallScoreBox').textContent = kpis.length
-    ? `الدرجة الكلية للشهر: ${overallScore}%${weightNote}`
-    : '';
-}
-
-document.getElementById('scorecard_period').addEventListener('change', renderScorecard);
-
-document.getElementById('repForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  addRep({
-    name: document.getElementById('rep_name').value.trim(),
-    phone: document.getElementById('rep_phone').value.trim(),
-  });
-  e.target.reset();
-  refresh();
-});
-
-document.getElementById('targetForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const entityId = document.getElementById('tg_entity').value;
-  if (!entityId) { alert('أضف مندوب أو عميل أولاً'); return; }
-  setTarget({
-    entityType: document.getElementById('tg_entityType').value,
-    entityId,
-    period: document.getElementById('tg_period').value, // YYYY-MM
-    targetAmount: Number(document.getElementById('tg_amount').value),
-    commissionRate: Number(document.getElementById('tg_commission').value) || 0,
-    vatRate: Number(document.getElementById('tg_vat').value) || 0,
-  });
-  document.getElementById('tg_amount').value = '';
-  document.getElementById('tg_commission').value = '0';
-  document.getElementById('tg_vat').value = '14';
-  refresh();
-});
-
-
 // ---------------- لوحة "نسبة تحقيقي" ----------------
 const fmtNum = (n) => { const a = Math.abs(n); if (a >= 1e6) return (n / 1e6).toFixed(2) + 'M'; if (a >= 1e3) return (n / 1e3).toFixed(2) + 'K'; return (Math.round(n * 100) / 100).toLocaleString(); };
-const isValueKpi = (k) => ['category_value', 'total_value', 'promo_value', 'nonpromo_value'].includes(k.metricType);
+const isValueKpi = (k) => k.metricType === 'category_value' || k.metricType === 'total_value';
 const fmtKpi = (k, n) => k.metricType === 'manual_percent' ? `${Math.round(n)}%` : isValueKpi(k) ? fmtNum(n) : Math.round(n).toLocaleString();
 
 function gaugeSvg(pct, actualLabel, maxLabel) {
@@ -537,8 +282,6 @@ document.getElementById('btnResetWs').addEventListener('click', () => {
   refresh();
 });
 
-document.getElementById('kpi_period').value = currentPeriod();
-document.getElementById('scorecard_period').value = currentPeriod();
 refresh();
 </script>
 </body>

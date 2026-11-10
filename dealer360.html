@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>تاجر 360</title>
+<style>:root{--bg:#EEF1F0;--card:#fff;--text:#16212B;--muted:#5B6572;--primary:#1F5065;--primary-dark:#123244;--danger:#A6402F;--ok:#1F7A4D;--border:#DCE1DF}*{box-sizing:border-box}
+body{font-family:'Dubai','Segoe UI',Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:16px}h1{font-size:21px;margin:0 0 4px;color:var(--primary-dark)}h3{font-size:14px;margin:14px 0 6px;color:var(--primary-dark)}
+.card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:14px;border:1px solid var(--border);overflow-x:auto}.kpis{display:flex;gap:10px;flex-wrap:wrap}.kpi{background:#F3F6F5;border-radius:10px;padding:10px 14px;flex:1;min-width:140px}.kpi .label{font-size:12px;color:var(--muted)}.kpi .value{font-size:19px;font-weight:700;color:var(--primary-dark)}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}th{color:var(--muted);font-size:12px;border-bottom:2px solid var(--border)}select,input{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit}.muted{color:var(--muted);font-size:12.5px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #B8862E}nav a{text-decoration:none;background:#fff;color:var(--primary-dark);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;border:1px solid var(--border)}nav a.active{background:var(--primary);color:#fff}</style>
+<link rel="stylesheet" href="theme.css"><script src="theme.js"></script></head><body>
+<nav><a href="index.html">🏠 الرئيسية</a><a href="inventory.html">📦 المخزون</a><a href="customers.html">💰 العملاء</a><a href="dealer-stock.html">🏬 مخزون التجار</a><a href="invoices.html">📄 الفواتير</a><a href="targets.html">🎯 الأهداف</a><a href="dealer-targets.html">🎯 تارجت التجار</a><a href="analytics.html">📊 تحليل البيانات</a><a href="explorer.html">🔎 المستكشف</a><a href="supply.html">🚚 الإمداد</a><a href="dealer360.html" class="active">🧑‍💼 تاجر 360</a><a href="manager.html">📈 لوحة المدير</a><a href="promos.html">🏷 العروض</a><a href="help.html">❓ الدليل</a></nav>
+<h1>🧑‍💼 تاجر 360°</h1>
+<div class="card"><div class="row"><select id="cust" style="min-width:240px"></select><select id="yr"></select><label class="muted"><input type="checkbox" id="net" checked> صافي بدون ضريبة (÷1.14)</label></div></div>
+<div class="card" id="out"></div>
+<script type="module">
+import { esc, initStorage, getAll, STORAGE_KEYS, getSalesYears } from './erp-data-layer.js';
+import { renderDealer360 } from './dealer360.js';
+initStorage();
+const $=i=>document.getElementById(i),cs=getAll(STORAGE_KEYS.CUSTOMERS).slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')),ys=getSalesYears();
+$('cust').innerHTML=cs.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.code?' ('+esc(c.code)+')':''}</option>`).join('');
+const now=new Date().getFullYear(),list=[...new Set([...ys,now])].sort();$('yr').innerHTML=list.map(y=>`<option>${y}</option>`).join('');$('yr').value=now;
+const go=()=>renderDealer360($('out'),$('cust').value,+$('yr').value,{vat:$('net').checked?14:0});
+['cust','yr','net'].forEach(i=>$(i).addEventListener('change',go));go();
+</script></body></html>

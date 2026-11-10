@@ -55,16 +55,20 @@
   <a href="customers.html">💰 العملاء</a>
   <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html">📄 الفواتير</a>
-  <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
   <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html">📊 تحليل البيانات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
 </nav>
 
 
 <h1>📦 إدارة المخزون</h1>
 
-<div id="alertBox"></div>
 <div class="card" id="atpCard" style="display:none;">
   <h2>🚨 تجاوزات ATP</h2>
   <div id="atpBody"></div>
@@ -74,12 +78,11 @@
     <h2>الأصناف والأرصدة الحالية</h2>
     <div>
       <label style="font-size:13px; margin-inline-end:8px;"><input type="checkbox" id="showArchived" style="flex:none; width:auto;"> عرض المنتجات المؤرشفة</label>
-      <label style="font-size:13px; margin-inline-end:8px;" title="رصيد حركات البرنامج فقط، مش رصيد الساب (غالباً سالب)"><input type="checkbox" id="showBalance" style="flex:none; width:auto;"> عرض الرصيد الحالي (حركات البرنامج)</label>
     </div>
   </div>
-  <table id="mainTable" class="hide-bal">
+  <table id="mainTable">
     <thead>
-      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th class="col-bal">الرصيد الحالي</th><th>حد الطلب</th><th>السعر الحالي</th><th>ATP</th><th>الجاية</th><th>الطلبيات المحجوزة</th><th>المتاح (Remaining)</th><th>آخر تحديث</th><th>إجراءات</th></tr>
+      <tr><th>المنتج</th><th>الكود</th><th>التصنيف</th><th>الوحدة</th><th>السعر الحالي</th><th>ATP</th><th>الجاية</th><th>الطلبيات المحجوزة</th><th>المتاح (Remaining)</th><th>آخر تحديث</th><th>إجراءات</th></tr>
     </thead>
     <tbody id="productsTable"></tbody>
   </table>
@@ -126,25 +129,8 @@
     <input type="text" id="p_unit" placeholder="الوحدة (قطعة/كرتونة..)" value="قطعة">
     <input type="text" id="p_category" placeholder="التصنيف (بوتجاز/MDA/SDA..)">
     <input type="text" id="p_description" placeholder="وصف المنتج">
-    <input type="number" id="p_reorder" placeholder="حد إعادة الطلب" value="0" min="0">
     <input type="number" id="p_price" placeholder="السعر الأساسي" value="0" min="0" step="0.01">
-    <input type="number" id="p_opening" placeholder="الرصيد الافتتاحي" value="0" min="0">
     <button type="submit">إضافة</button>
-  </form>
-</div>
-<div class="card">
-  <div class="toolbar">
-    <h2>تسجيل حركة مخزون (وارد / صادر)</h2>
-  </div>
-  <form id="txForm">
-    <select id="t_product" required></select>
-    <select id="t_type">
-      <option value="in">وارد (+)</option>
-      <option value="out">صادر (-)</option>
-    </select>
-    <input type="number" id="t_qty" placeholder="الكمية" min="1" required>
-    <input type="text" id="t_ref" placeholder="ملاحظة / سبب الحركة">
-    <button type="submit">تسجيل الحركة</button>
   </form>
 </div>
 <div class="card">
@@ -210,20 +196,17 @@
 
 <script type="module">
 import {
-  esc, inPeriod, getReportOrders, importProducts, isProductHidden, getActiveProducts, syncCatalogToList,
+  esc, importProducts, isProductHidden, getActiveProducts, syncCatalogToList,
   getAtpWatchlist,
-  DIVISIONS, productDivision, productFamily, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog, clearHistoricalImports,
+  DIVISIONS, productDivision, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog, clearHistoricalImports,
   initStorage, addProduct, getAll, STORAGE_KEYS,
-  getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
+  isProductUsed,
   addStockStatusUpdate, importStockStatus, getLatestStockStatus,
-  setProductOffer, clearProductOffer, getEffectivePrice,
-  deleteRecord, updateRecord, downloadBackup, importBackup,
-} from './erp-data-layer.js';
+  setProductOffer, clearProductOffer, deleteRecord, updateRecord, } from './erp-data-layer.js';
 
 initStorage();
 
 function refresh() {
-  renderAlerts();
   renderAtpCard();
   renderProductsTable();
   renderProductSelect();
@@ -310,28 +293,14 @@ function renderAtpCard() {
   document.getElementById('atpBody').innerHTML = age + neg + watch;
 }
 
-function renderAlerts() {
-  const alerts = getLowStockAlerts();
-  const box = document.getElementById('alertBox');
-  if (alerts.length === 0) { box.innerHTML = ''; return; }
-  box.innerHTML = `
-    <div class="alert">
-      <strong>⚠ تنبيه نواقص مخزون (${alerts.length} صنف وصل لحد الطلب أو أقل):</strong>
-      <ul>${alerts.map(a => `<li>${esc(a.name)} — الرصيد الحالي: ${a.currentStock} (حد الطلب: ${a.reorderLevel})</li>`).join('')}</ul>
-    </div>`;
-}
-
 let editingProductId = null;
 
 function renderProductsTable() {
   const showArchived = document.getElementById('showArchived')?.checked;
   const products = getAll(STORAGE_KEYS.PRODUCTS).filter(p => showArchived || !isProductHidden(p));
-  const stockMap = getStockMap();
   const tbody = document.getElementById('productsTable');
   document.getElementById('emptyState').style.display = products.length ? 'none' : 'block';
   tbody.innerHTML = products.map(p => {
-    const stock = stockMap[p.id] || 0;
-    const low = p.reorderLevel > 0 && stock <= p.reorderLevel; // نفس شرط getLowStockAlerts بالظبط
     const status = getLatestStockStatus(p.id);
     const atpDisplay = status && status.atp !== null ? status.atp : '-';
     const incomingDisplay = status && status.incoming !== null ? status.incoming : '-';
@@ -347,8 +316,6 @@ function renderProductsTable() {
         <td><input type="text" class="e-sku" value="${esc(p.sku || '')}"></td>
         <td><input type="text" class="e-category" value="${esc(p.category || '')}"></td>
         <td><input type="text" class="e-unit" value="${esc(p.unit)}"></td>
-        <td class="col-bal ${low ? 'low' : ''}">${stock}</td>
-        <td><input type="number" class="e-reorder" value="${p.reorderLevel}" style="width:70px;"></td>
         <td>
           <input type="number" class="e-price" value="${p.basePrice}" style="width:75px;" placeholder="السعر الأساسي" title="السعر الأساسي"><br>
           <input type="number" class="e-offer" value="${p.offerPrice ?? ''}" style="width:75px; margin-top:4px;" placeholder="سعر العرض (سيبه فاضي = بدون عرض)" title="سعر العرض">
@@ -375,8 +342,6 @@ function renderProductsTable() {
         <td>${esc(p.sku || '-')}</td>
         <td>${esc(p.category || '-')}</td>
         <td>${esc(p.unit)}</td>
-        <td class="col-bal ${low ? 'low' : ''}">${stock}</td>
-        <td>${p.reorderLevel}</td>
         <td>${priceCell}</td>
         <td>${atpDisplay}</td>
         <td>${incomingDisplay}</td>
@@ -405,7 +370,6 @@ function renderProductsTable() {
         sku: row.querySelector('.e-sku').value.trim(),
         category: row.querySelector('.e-category').value.trim(),
         unit: row.querySelector('.e-unit').value.trim() || 'قطعة',
-        reorderLevel: Number(row.querySelector('.e-reorder').value) || 0,
         basePrice: Number(row.querySelector('.e-price').value) || 0,
         offerPrice: offerVal === '' ? null : Number(offerVal),
       });
@@ -431,7 +395,6 @@ function renderProductsTable() {
 function renderProductSelect() {
   const products = getActiveProducts();
   const options = products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  document.getElementById('t_product').innerHTML = options;
   document.getElementById('st_product').innerHTML = options;
   document.getElementById('of_product').innerHTML = options;
 }
@@ -444,27 +407,10 @@ document.getElementById('productForm').addEventListener('submit', (e) => {
     unit: document.getElementById('p_unit').value.trim() || 'قطعة',
     category: document.getElementById('p_category').value.trim(),
     description: document.getElementById('p_description').value.trim(),
-    reorderLevel: Number(document.getElementById('p_reorder').value) || 0,
     basePrice: Number(document.getElementById('p_price').value) || 0,
-    openingStock: Number(document.getElementById('p_opening').value) || 0,
   });
   e.target.reset();
   document.getElementById('p_unit').value = 'قطعة';
-  refresh();
-});
-
-document.getElementById('txForm').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const productId = document.getElementById('t_product').value;
-  if (!productId) { alert('أضف منتج أولاً'); return; }
-  addInventoryTransaction({
-    productId,
-    type: document.getElementById('t_type').value,
-    qty: Number(document.getElementById('t_qty').value),
-    refType: 'manual',
-    refId: document.getElementById('t_ref').value.trim() || null,
-  });
-  e.target.reset();
   refresh();
 });
 
@@ -543,7 +489,6 @@ document.getElementById('btnBulkOffers').addEventListener('click', () => {
   alert(msg);
 });
 document.getElementById('showArchived').addEventListener('change', renderProductsTable);
-document.getElementById('showBalance').addEventListener('change', (e) => document.getElementById('mainTable').classList.toggle('hide-bal', !e.target.checked));
 document.getElementById('btnSyncCatalog').addEventListener('click', () => {
   const box = document.getElementById('syncList');
   if (!box.value.trim()) { alert('الصق قايمة الأسعار الحالية الأول'); return; }

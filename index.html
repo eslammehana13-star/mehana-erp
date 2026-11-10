@@ -46,10 +46,15 @@
   <a href="customers.html">💰 العملاء</a>
   <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html">📄 الفواتير</a>
-  <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
   <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html">📊 تحليل البيانات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
 </nav>
 
 <h1>نظرة عامة</h1>
@@ -106,10 +111,10 @@
 import {
   esc, inPeriod, getReportOrders,
   initStorage, getAll, STORAGE_KEYS,
-  getCustomerBalance, getAllCustomerBalances, getOverCreditLimitCustomers,
-  getLowStockAlerts, getChecksDueSoon, getOrdersNeedingRenewal,
+  getAllCustomerBalances, getOverCreditLimitCustomers,
+  getOrdersNeedingRenewal,
   getTopCustomers, getTopProducts, getMonthlyScorecard, getDaysSinceLastBackup,
-  getActiveOrders, getAgingReport, getDealerTargetsOverview, getAtpWatchlist, getDeferredOrders,
+  getAgingReport, getDealerTargetsOverview, getAtpWatchlist, getDeferredOrders,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -146,18 +151,6 @@ function renderAlerts() {
   if (overCredit.length) {
     addPanel('p_credit', '🚫', 'تعدّوا حد الائتمان', overCredit.length, 'sev-bad',
       `<h2>🚫 عملاء تعدّوا حد الائتمان (${overCredit.length})</h2><ul>${overCredit.map(c => `<li>${esc(c.name)} — ${c.balance.toLocaleString()} / حد ${c.creditLimit.toLocaleString()}</li>`).join('')}</ul>`);
-  }
-
-  const lowStock = getLowStockAlerts();
-  if (lowStock.length) {
-    addPanel('p_low', '⚠', 'نواقص مخزون', lowStock.length, 'sev-warn',
-      `<h2>⚠ نواقص مخزون (${lowStock.length})</h2><ul>${lowStock.map(p => `<li>${esc(p.name)} — الرصيد: ${p.currentStock} (حد الطلب: ${p.reorderLevel})</li>`).join('')}</ul>`);
-  }
-
-  const checksDue = getChecksDueSoon(7);
-  if (checksDue.length) {
-    addPanel('p_checks', '🧾', 'شيكات مستحقة (7 أيام)', checksDue.length, 'sev-warn',
-      `<h2>🧾 شيكات مستحقة خلال 7 أيام (${checksDue.length})</h2><ul>${checksDue.map(c => `<li>${esc(customers.find(cc => cc.id === c.customerId)?.name || '?')} — ${c.amount.toLocaleString()} — استحقاق ${c.dueDate}</li>`).join('')}</ul>`);
   }
 
   const needingRenewal = getOrdersNeedingRenewal();

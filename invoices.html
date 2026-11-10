@@ -104,10 +104,15 @@
   <a href="customers.html">💰 العملاء</a>
   <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html" class="active">📄 الفواتير</a>
-  <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
   <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html">📊 تحليل البيانات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
 </nav>
 
 <h1>📄 الفواتير</h1>
@@ -136,7 +141,6 @@
       <input type="number" id="qc_discount" placeholder="نسبة الخصم %" value="0" style="flex:1; min-width:90px;">
       <button type="button" id="btnSaveQuickCustomer">حفظ العميل</button>
     </div>
-    <select id="s_rep"><option value="">بدون مندوب</option></select>
     <div class="line-items" id="lineItems"></div>
     <div style="display:flex; gap:8px; width:100%; align-items:center;">
       <label style="display:flex; align-items:center; gap:6px; font-size:14px; width:100%;">
@@ -177,11 +181,12 @@
   <p class="muted" id="ordersEmpty" style="display:none">لا توجد فواتير بعد.</p>
 </div>
 
+<details class="card tools"><summary>🛠 أدوات متقدمة (استيراد وتصحيح — مرة واحدة)</summary>
 <div class="card">
   <details>
     <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">📥 استيراد أوردرات تاريخية (مرة واحدة من ملف الساب)</summary>
     <div style="margin-top:12px;">
-      <p class="muted">للاستيراد التاريخي بالتفصيل الكامل بس (مش للاستخدام اليومي). الأعمدة بالترتيب: Document Date (YYYY-MM-DD) ← Sales Document ← Sold-to Party ← Material ← Material Description ← Order Quantity ← Net Price ← Delivery Status. كل الأسطر اللي عندها نفس رقم الـ Sales Document بتتجمّع في طلبية واحدة، وبتتسجل مؤرشفة من غير ما تأثر على المخزون الحالي. أي رقم Sales Document موجود أصلاً بيتخطى تلقائياً (حماية من التكرار) إلا لو فعّلت "تحديث" تحت.</p>
+      <p class="muted">للاستيراد التاريخي بالتفصيل الكامل بس (مش للاستخدام اليومي). الأعمدة بالترتيب: Document Date (YYYY-MM-DD) ← Sales Document ← Sold-to Party ← Material ← Material Description ← Order Quantity ← Net Price ← Delivery Status. كل الأسطر اللي عندها نفس رقم الـ Sales Document بتتجمّع في طلبية واحدة، وبتتسجل مؤرشفة من غير ما تأثر على المخزون الحالي. أي رقم Sales Document موجود أصلاً بيتخطى تلقائياً (حماية من التكرار) إلا لو فعّلت "تحديث" تحت. <b>جديد:</b> تقدر تلصق تقرير الساب الكامل بعناوينه (الأعمدة بتتقرى بالاسم، والتواريخ شهر/يوم/سنة، وGoods Issue Date اختياري)، أو الصيغة المختصرة مع عمود تاسع اختياري لتاريخ التسليم الفعلي. الأصناف المسلَّمة اللي ليها تاريخ تسليم بتتحسب بيه بدل تاريخ الطلب.</p>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;">
           استورد لحد تاريخ (اختياري)
@@ -193,6 +198,9 @@
         </label>
         <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="لو فعّلتها: أي رقم Sales Document موجود أصلاً من استيراد سابق هيتستبدل ببياناته الجديدة بدل ما يتخطى. الفواتير اللي دخّلتها إنت يدوياً مش بتتأثر أبداً حتى لو نفس الرقم بالصدفة.">
           <input type="checkbox" id="histUpdateMode" style="flex:none; width:auto;"> تحديث السجلات الموجودة بدل تخطيها (للتصحيح لاحقاً)
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="لو التقرير من غير Goods Issue: الأصناف Completed بتاخد عمود Delivery Date كتاريخ تسليم تقريبي بدل تاريخ الطلب (لسه معلّمة تقريبي). بيشتغل مع تقرير الساب الكامل بعناوينه بس.">
+          <input type="checkbox" id="histUseDelDate" style="flex:none; width:auto;"> استخدم Delivery Date كتاريخ تسليم تقريبي للأصناف Completed
         </label>
       </div>
       <textarea id="histOrders" rows="6" placeholder="الصق هنا بيانات الأوردرات التاريخية كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
@@ -220,6 +228,8 @@
     </div>
   </details>
 </div>
+
+</details>
 
 <div class="card">
   <details id="syncDetails">
@@ -254,12 +264,11 @@
 import {
   esc, inPeriod, getReportOrders,
   initStorage, addCustomer, getAll, STORAGE_KEYS,
-  recordSale, getProductStock, getEffectivePrice, getLatestStockStatus,
-  ORDER_STATUSES, updateOrderStatus, updateOrderItemStatus,
+  recordSale, getEffectivePrice, ORDER_STATUSES, updateOrderStatus, updateOrderItemStatus,
   updateOrderNumber, getRenewalDaysLeft, getOrdersNeedingRenewal,
   updateOrderItems, voidOrder, recordReturn, getOrderReturns, getOrderAuditLog,
   getActiveOrders, startNewMonth,
-  updateRecord, downloadBackup, importBackup, productFamily, importHistoricalOrders, isProductHidden, productDivision, productPath, DIVISIONS, setOrderItemDeliveredAt,
+  updateRecord, downloadBackup, importHistoricalOrders, isProductHidden, productPath, DIVISIONS, setOrderItemDeliveredAt,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
   previewSapSync, applySapSync, buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp,
   splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
@@ -286,7 +295,7 @@ function productOptionsHtml(products, { selectedId = null, priceFn = (p) => p.ba
   return [...groups.entries()]
     .sort((a, b) => order(a[1].div) - order(b[1].div) || a[0].localeCompare(b[0], 'ar'))
     .map(([label, g]) => `<optgroup label="${esc(label)}">${g.items.sort((x, y) => (x.sku || x.name).localeCompare(y.sku || y.name)).map(p =>
-      `<option value="${p.id}" data-stock="${getProductStock(p.id)}" data-price="${priceFn(p) || 0}" ${selectedId === p.id ? 'selected' : ''}>${esc(productLabel(p))} — ${(priceFn(p) || 0).toLocaleString()} ج.م${String(p.category || '').includes('Traditional') ? ' · Traditional' : ''}</option>`
+      `<option value="${p.id}" data-price="${priceFn(p) || 0}" ${selectedId === p.id ? 'selected' : ''}>${esc(productLabel(p))} — ${(priceFn(p) || 0).toLocaleString()} ج.م${String(p.category || '').includes('Traditional') ? ' · Traditional' : ''}</option>`
     ).join('')}</optgroup>`).join('');
 }
 
@@ -372,32 +381,6 @@ function readCurrentItems(orderId) {
     qty: Number(row.querySelector('.edit-item-qty').value) || 0,
     unitPrice: Number(row.querySelector('.edit-item-price').value) || 0,
   })).filter(it => it.qty > 0);
-}
-
-/**
- * فحص نفاد المخزون وقت تعديل طلبية موجودة: الرصيد الحالي أصلاً
- * مخصوم منه كمية الطلبية دي زي ما هي دلوقتي، فالمتاح الحقيقي
- * للكمية الجديدة = الرصيد الحالي + الكمية القديمة لنفس الصنف
- * في نفس الطلبية (لأنها هترجع للمخزون قبل ما تتسجل الكمية الجديدة).
- */
-function checkShortagesForEdit(orderId, items) {
-  const order = getAll(STORAGE_KEYS.SALES_ORDERS).find(o => o.id === orderId);
-  const products = getAll(STORAGE_KEYS.PRODUCTS);
-  const oldItems = order ? order.items : [];
-  return items
-    .map(it => {
-      const oldQty = (oldItems.find(oi => oi.productId === it.productId) || {}).qty || 0;
-      return { ...it, available: getProductStock(it.productId) + oldQty, product: products.find(p => p.id === it.productId) };
-    })
-    .filter(it => it.qty > it.available);
-}
-
-function confirmShortages(shortages) {
-  if (shortages.length === 0) return true;
-  const msg = 'الكمية المطلوبة أكبر من المتاح في المخزون:\n' +
-    shortages.map(s => `- ${s.product?.name || '?'}: مطلوب ${s.qty}، المتاح ${s.available}`).join('\n') +
-    '\n\nتكمل الحفظ برضه؟';
-  return confirm(msg);
 }
 
 /** يفتح مودال تفاصيل الأصناف لطلبية معيّنة في نافذة منفصلة فوق الصفحة، بدل ما تنزل الصفحة تحت */
@@ -559,11 +542,9 @@ function buildDeferMap(items, over) {
 function confirmAtp(items, orderId) {
   const res = checkSaleAgainstAtp(items, { orderId });
   const over = res.filter(r => r.over);
-  const noAtp = res.filter(r => !r.hasAtp && r.need > 0 && getProductStock(r.productId) > 0 && r.need > getProductStock(r.productId));
-  if (!over.length && !noAtp.length) return true;
+  if (!over.length) return true;
   let msg = '';
   if (over.length) msg += '⛔ تجاوز تخصيص الساب:\n' + over.map(r => `- ${r.sku || r.name}${r.fs90 ? ' 🔥FS90' : ''}: مطلوب ${r.need}، المتاح الفعلي ${r.effective}، هيبقى ${r.after}${r.incoming ? ` (الجاي ${r.incoming})` : ''}`).join('\n') + '\n\nالأفضل تنزّل الكمية لحد المتاح، أو تعتبر الزيادة Backorder على الجاي.';
-  if (noAtp.length) msg += `${msg ? '\n\n' : ''}أكتر من رصيد المخزون:\n` + noAtp.map(r => `- ${r.sku || r.name}: مطلوب ${r.need}، الرصيد ${getProductStock(r.productId)}`).join('\n');
   return confirm(msg + '\n\nتحفظ برضه؟');
 }
 
@@ -571,7 +552,7 @@ let lineCount = 0;
 
 function refresh() {
   // حفظ اللي المستخدم كان بيعمله قبل إعادة الرسم (اختيار العميل/المندوب، أرقام الطلبيات، الأصناف المفتوحة)
-  const sel = ['s_customer', 's_rep'].map(id => [id, document.getElementById(id).value]);
+  const sel = ['s_customer'].map(id => [id, document.getElementById(id).value]);
   const nums = Array.from(document.querySelectorAll('.ord-number-input')).map(i => [i.dataset.id, i.value]);
   const invNums = Array.from(document.querySelectorAll('.inv-number-input')).map(i => [i.dataset.id, i.value]);
   refreshCore();
@@ -584,16 +565,9 @@ function refresh() {
 }
 function refreshCore() {
   renderCustomerSelects();
-  renderRepSelect();
   renderOrdersTable();
   renderRenewalAlerts();
   renderDeferred();
-}
-
-function renderRepSelect() {
-  const reps = getAll(STORAGE_KEYS.REPS);
-  document.getElementById('s_rep').innerHTML =
-    '<option value="">بدون مندوب</option>' + reps.map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('');
 }
 
 function renderRenewalAlerts() {
@@ -757,7 +731,7 @@ document.getElementById('saleForm').addEventListener('submit', async (e) => {
     if (choice === 'split') deferMap = buildDeferMap(items, over);
   } else if (!confirmAtp(items, null)) return;
 
-  const repId = document.getElementById('s_rep').value || null;
+  const repId = null;
   const typedDiscount = document.getElementById('s_discount').value;
   const saved = recordSale({ customerId, items, repId, discountRate: typedDiscount === '' ? null : Number(typedDiscount) });
   if (deferMap) {
@@ -908,7 +882,6 @@ function duplicateOrder(orderId) {
   document.getElementById('s_customerSearch').value = '';
   renderCustomerSelects();
   document.getElementById('s_customer').value = o.customerId;
-  document.getElementById('s_rep').value = o.repId || '';
   document.getElementById('s_discount').value = '';
   document.getElementById('lineItems').innerHTML = '';
   usable.forEach(it => addLineItemRow({ productId: it.productId, qty: it.qty }));
@@ -1128,10 +1101,12 @@ document.getElementById('btnImportHistorical').addEventListener('click', () => {
   const vatRate = Number(document.getElementById('histVat').value) || 0;
   const updateMode = document.getElementById('histUpdateMode').checked;
   if (!confirm(updateMode ? 'تأكيد التحديث؟ أي طلبية مستوردة سابقاً بنفس رقم الـ Sales Document هتتستبدل ببياناتها الجديدة.' : 'تأكيد استيراد الأوردرات التاريخية؟ العملية دي بتتجمع (مش بتلغي القديم) ومينفعش تتراجع فيها غير بنسخة احتياطية.')) return;
-  const r = importHistoricalOrders(box.value, { cutoffDate: cutoff, vatRate, updateMode });
+  let r;
+  try { r = importHistoricalOrders(box.value, { cutoffDate: cutoff, vatRate, updateMode, useDeliveryDate: document.getElementById('histUseDelDate').checked }); } catch (err) { alert('⚠ ' + err.message); return; }
   refresh();
   let msg = `تم استيراد ${r.imported} طلبية جديدة${r.updated ? ` وتحديث ${r.updated} طلبية موجودة` : ''} ✅ (إجمالي ${r.totalValue.toLocaleString()} ج.م شامل الضريبة)`;
   if (r.skippedDuplicate) msg += `\nتم تخطي ${r.skippedDuplicate} طلبية موجودة أصلاً (${updateMode ? 'فاتورة يدوية بنفس الرقم' : 'فعّل "تحديث" لو عايز تصححها'})`;
+  if (r.range.from) msg += `\nنطاق تواريخ الطلبيات: ${r.range.from} ← ${r.range.to} (اتأكد إنه منطقي) — أصناف مسلَّمة بتاريخ تسليم فعلي: ${r.withDeliveryDate}`;
   if (r.skippedCustomerNotFound.length) msg += `\n⚠ ${r.skippedCustomerNotFound.length} طلبية اتخطّت لعدم وجود كود العميل: ${r.skippedCustomerNotFound.slice(0, 10).join('، ')}`;
   if (r.autoCreatedProducts.length) msg += `\nℹ️ ${r.autoCreatedProducts.length} صنف اتسجل تلقائياً لأنه مش في الكتالوج الحالي (راجعهم من صفحة المخزون، تصنيف "مؤرشف"): ${r.autoCreatedProducts.slice(0, 10).join('، ')}`;
   alert(msg);

@@ -69,10 +69,15 @@
   <a href="customers.html">💰 العملاء</a>
   <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html">📄 الفواتير</a>
-  <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
   <a href="dealer-targets.html" class="active">🎯 تارجت التجار</a>
   <a href="analytics.html">📊 تحليل المبيعات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
 </nav>
 
 <h1>🎯 تارجت التجار</h1>
@@ -107,6 +112,12 @@
     </div>
   </div>
   <div id="progressBox"></div>
+</div>
+
+<div class="card">
+  <div class="toolbar"><h2>📋 تحليل شامل للتاجر</h2>
+    <label class="muted" style="display:flex; align-items:center; gap:6px;"><input type="checkbox" id="d360net" checked> صافي بدون ضريبة (÷1.14)</label></div>
+  <div id="dealer360"></div>
 </div>
 
 <div class="card">
@@ -168,6 +179,7 @@ import {
   getDeliveredLines, getDeliveredReturns, getReportOrders,
 } from './erp-data-layer.js';
 
+import { renderDealer360 } from './dealer360.js';
 initStorage();
 
 const MONTHS = ['يناير', 'فبراير', 'مارس', 'إبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
@@ -393,7 +405,9 @@ $('btnDelete').addEventListener('click', () => {
 $('f_year').addEventListener('change', (e) => { state.year = Number(e.target.value); renderAll(); });
 $('f_customer').addEventListener('change', (e) => { state.customerId = e.target.value; renderAll(); });
 
-function renderAll() { renderOverview(); renderProgress(); wireFocusButtons(); loadEditor(); }
+function render360() { renderDealer360($('dealer360'), state.customerId, state.year, { vat: $('d360net').checked ? 14 : 0 }); }
+$('d360net').addEventListener('change', render360);
+function renderAll() { renderOverview(); renderProgress(); wireFocusButtons(); loadEditor(); render360(); }
 
 // ---------- تقرير Excel للتاجر ----------
 const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;

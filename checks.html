@@ -48,10 +48,15 @@
   <a href="customers.html">💰 العملاء</a>
   <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html">📄 الفواتير</a>
-  <a href="checks.html" class="active">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
   <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html">📊 تحليل البيانات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
 </nav>
 
 
@@ -80,11 +85,9 @@
 
 <script type="module">
 import {
-  esc, inPeriod, getReportOrders,
-  initStorage, getAll, STORAGE_KEYS,
+  esc, initStorage, getAll, STORAGE_KEYS,
   updateCheckDelivery, markCheckCleared, markCheckBounced, getChecksDueSoon,
-  downloadBackup, importBackup,
-} from './erp-data-layer.js';
+  } from './erp-data-layer.js';
 
 initStorage();
 

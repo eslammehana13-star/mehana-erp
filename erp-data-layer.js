@@ -439,7 +439,58 @@ function clearProductOffer(productId) {
 function getEffectivePrice(productId) {
   const product = getAll(STORAGE_KEYS.PRODUCTS).find((p) => p.id === productId);
   if (!product) return 0;
-  return product.offerPrice !== null && product.offerPrice !== undefined ? product.offerPrice : product.basePrice;
+  if (product.offerPrice !== null && product.offerPrice !== undefined) return product.offerPrice; // عرض يدوي بيغلب
+  const pr = activePromoFor(product); // وإلا عرض مجدول شغال النهارده
+  return pr ? pr.promo : product.basePrice;
+}
+
+// ------------------------------------------------------------
+// العروض المجدولة (بفترة بداية ونهاية): بتتطبق تلقائياً على الفواتير الجديدة طول الفترة وبتنتهي لوحدها.
+// الفاتورة بتاخد سعر العرض لو تاريخها جوه الفترة، والأصناف اللي اتسلمت بالسعر القديم ممكن تتصحح بـ previewPromoPrices.
+// ------------------------------------------------------------
+function getPromos() { const v = getSetting('promos', []); return Array.isArray(v) ? v : []; }
+function activePromoFor(product, date = new Date().toISOString().slice(0, 10)) {
+  const sku = String((product && product.sku) || '').trim().toLowerCase();
+  if (!sku) return null;
+  const hits = getPromos().filter((x) => x.sku.toLowerCase() === sku && x.from <= date && (!x.to || x.to >= date)).sort((a, b) => b.from.localeCompare(a.from));
+  return hits[0] || null;
+}
+/** سطر لكل صنف: الكود ← (سعر اللست اختياري) ← سعر العرض. from/to: YYYY-MM-DD ("to" فاضي = مفتوح لحد ما تمسحه) */
+function importPromos(text, { from, to = '', label = '' } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '')) throw new Error('حدد تاريخ بداية العرض');
+  if (to && to < from) throw new Error('تاريخ النهاية قبل البداية');
+  const bySku = new Map(getAll(STORAGE_KEYS.PRODUCTS).filter((p) => p.sku).map((p) => [p.sku.trim().toLowerCase(), p]));
+  const res = { added: 0, replaced: 0, notFound: [], bad: [] };
+  let list = getPromos().slice();
+  String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).forEach((l) => {
+    const t = l.split(/\t+|;|\s{2,}/).map((x) => x.trim()).filter(Boolean), parts = t.length >= 2 ? t : l.split(/\s+/);
+    if (parts.length < 2) return;
+    const promo = toNum(parts[parts.length - 1]), p = bySku.get(parts[0].toLowerCase());
+    if (!(promo > 0)) { if (!/[A-Za-z]{2}/.test(parts[parts.length - 1])) res.bad.push(parts[0]); return; }
+    if (!p) { res.notFound.push(parts[0]); return; }
+    const rrp = parts.length >= 3 ? toNum(parts[1]) : p.basePrice;
+    const before = list.length;
+    list = list.filter((x) => !(x.sku.toLowerCase() === p.sku.toLowerCase() && x.from === from));
+    if (list.length < before) res.replaced++; else res.added++;
+    list.push({ id: generateId('promo'), sku: p.sku, rrp, promo, from, to: to || '', label: label || '' });
+  });
+  setSetting('promos', list);
+  return res;
+}
+function deletePromo(id) { setSetting('promos', getPromos().filter((x) => x.id !== id)); }
+/** أداء كل عرض: كمية وقيمة الطلبيات في فترته مقابل نفس المدة قبله (بتاريخ الطلب، صافي) */
+function getPromoPerformance({ vatRate = 14 } = {}) {
+  const today = new Date().toISOString().slice(0, 10), day = 86400000;
+  const rows = getFactRows({ basis: 'order', vatRate }).filter((r) => r.kind === 'بيع');
+  return getPromos().map((p) => {
+    const to = p.to || today, len = Math.max(1, Math.round((new Date(to) - new Date(p.from)) / day) + 1);
+    const pf = new Date(new Date(p.from).getTime() - len * day).toISOString().slice(0, 10), pt = new Date(new Date(p.from).getTime() - day).toISOString().slice(0, 10);
+    const mine = rows.filter((r) => r.sku.toLowerCase() === p.sku.toLowerCase());
+    const a = mine.filter((r) => r.date >= p.from && r.date <= to), b = mine.filter((r) => r.date >= pf && r.date <= pt);
+    const qty = a.reduce((s, r) => s + r.qty, 0), prevQty = b.reduce((s, r) => s + r.qty, 0);
+    return { ...p, days: len, status: p.from > today ? 'قادم' : (p.to && p.to < today ? 'منتهي' : 'نشط'), qty, prevQty, net: a.reduce((s, r) => s + r.net, 0), dealers: new Set(a.map((r) => r.customerId)).size,
+      uplift: prevQty > 0 ? Math.round(((qty - prevQty) / prevQty) * 1000) / 10 : null, discountPct: p.rrp > 0 ? Math.round((1 - p.promo / p.rrp) * 1000) / 10 : null };
+  }).sort((a, b) => b.from.localeCompare(a.from));
 }
 
 /** خريطة أرصدة كل المنتجات دفعة واحدة (أسرع بكتير من تكرار getProductStock لكل منتج) */
@@ -460,14 +511,6 @@ function getProductStock(productId) {
 
 function addInventoryTransaction({ productId, type, qty, refType, refId }) {
   return addRecord(STORAGE_KEYS.INVENTORY_TX, { productId, type, qty, refType, refId, date: new Date().toISOString() });
-}
-
-/** يرجع المنتجات اللي وصلت لحد الطلب (Reorder Level) */
-function getLowStockAlerts() {
-  const stockMap = getStockMap();
-  return getAll(STORAGE_KEYS.PRODUCTS)
-    .map((p) => ({ ...p, currentStock: stockMap[p.id] || 0 }))
-    .filter((p) => p.reorderLevel > 0 && p.currentStock <= p.reorderLevel);
 }
 
 /** هل المنتج ده استُخدم في أي فاتورة أو مرتجع؟ (لمنع حذفه لو كده) */
@@ -537,14 +580,6 @@ function getLatestStockStatus(productId) {
   return logs[0] || null;
 }
 
-/** سجل كامل لتحديثات ATP/الجاية لمنتج معيّن، الأحدث أولاً */
-function getStockStatusHistory(productId) {
-  return getAll(STORAGE_KEYS.STOCK_STATUS)
-    .filter((s) => s.productId === productId)
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-}
-
-
 // ------------------------------------------------------------
 // مخزون التاجر: الكمية اللي موجودة فعلياً عند كل تاجر من كل صنف،
 // بتتسجل بالعدّ وقت الزيارة (سجل تاريخي زي ATP، مش رقم بيتكتب فوقه).
@@ -577,13 +612,6 @@ function getDealerStock(customerId) {
     if (!cur || new Date(r.date) > new Date(cur.date)) latest.set(r.productId, r);
   });
   return [...latest.values()];
-}
-
-/** تاريخ تحديثات صنف معيّن عند تاجر معيّن، الأحدث أولاً */
-function getDealerStockHistory(customerId, productId) {
-  return getAll(STORAGE_KEYS.DEALER_STOCK)
-    .filter((r) => r.customerId === customerId && r.productId === productId)
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 /** ملخص كل التجار: عدد الأصناف المسجلة، إجمالي القطع، القيمة التقديرية، آخر تحديث */
@@ -662,6 +690,28 @@ function recordSale({ customerId, items, repId = null, discountRate: requestedRa
   return order;
 }
 
+
+/**
+ * قراءة الأوردرات التاريخية بصيغتين:
+ * (1) تقرير الساب الكامل بعناوينه (لو فيه عمود Goods Issue Date): الأعمدة بتتلقط بالاسم، والتواريخ شهر/يوم/سنة.
+ * (2) الصيغة المختصرة (8 أعمدة، التاريخ YYYY-MM-DD) + عمود تاسع اختياري = تاريخ التسليم الفعلي.
+ */
+function parseHistRows(text, { useDeliveryDate = false } = {}) {
+  const rows = parseRows(text);
+  const hi = rows.findIndex((r) => r.some((c) => /^document date/i.test(c.trim())) && r.some((c) => /^sales\s*document/i.test(c.trim())));
+  if (hi === -1) return { rows: rows.map((r) => ({ date: r[0], doc: r[1], cust: r[2], mat: r[3], desc: r[4], qty: r[5], net: r[6], status: r[7], gi: r[8] || '' })), full: false };
+  const h = rows[hi].map((c) => c.trim().toLowerCase());
+  const col = (re) => h.findIndex((c) => re.test(c));
+  const C = { date: col(/^document date/), doc: col(/^sales document/), cust: col(/^sold-to/), mat: col(/^material( number)?$/), desc: col(/material desc|^description/), qty: col(/quantity/), net: col(/net price/),
+    status: col(/delivery status/) !== -1 ? col(/delivery status/) : col(/status/), rej: col(/reject/), gi: col(/goods\s*issue/), dd: col(/^delivery date/) };
+  const miss = ['date', 'doc', 'cust', 'mat', 'qty', 'net', 'status'].filter((k) => C[k] === -1);
+  if (miss.length) throw new Error(`مقدرتش أحدد الأعمدة دي من العناوين: ${miss.join('، ')}\nالعناوين اللي لقيتها: ${rows[hi].join(' | ')}`);
+  const get = (r, k) => (C[k] === -1 ? '' : r[C[k]] || '');
+  const d = (v) => normSapDate(v, true);
+  return { full: true, rows: rows.slice(hi + 1).map((r) => ({ date: d(get(r, 'date')), doc: get(r, 'doc'), cust: get(r, 'cust'), mat: get(r, 'mat'), desc: get(r, 'desc'), qty: get(r, 'qty'), net: get(r, 'net'),
+    status: String(get(r, 'rej')).trim() ? 'Not Relevant' : get(r, 'status'), gi: d(get(r, 'gi')) || (useDeliveryDate ? d(get(r, 'dd')) : ''), proxy: !d(get(r, 'gi')) && useDeliveryDate && !!d(get(r, 'dd')) })) };
+}
+
 /**
  * استيراد أوردرات تاريخية بالتفصيل الكامل (من تصدير الساب).
  * الأعمدة بالترتيب: Document Date (YYYY-MM-DD) | Sales Document | Sold-to Party (كود العميل)
@@ -677,7 +727,7 @@ function recordSale({ customerId, items, repId = null, discountRate: requestedRa
  * - الصنف اللي كوده مش موجود في الكتالوج الحالي بيتسجّل تلقائياً كمنتج "مؤرشف" (بسعر الاستيراد كسعر مبدئي)
  *   عشان القيمة متضيعش، وبيترجع في autoCreatedProducts عشان تراجعه.
  */
-function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14, updateMode = false } = {}) {
+function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14, updateMode = false, useDeliveryDate = false } = {}) {
   const STATUS_MAP = { Completed: 'delivered', 'Not Delivered': 'confirmed', 'Partially Delivered': 'release' };
   const existingOrders = getAll(STORAGE_KEYS.SALES_ORDERS);
   // في وضع التحديث: الطلبيات المستوردة تاريخياً بس هي اللي ممكن تتستبدل — أي فاتورة دخّلتها إنت يدوياً مش بتتلمس أبداً
@@ -688,16 +738,16 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14, updateM
   let products = getAll(STORAGE_KEYS.PRODUCTS);
   const productBySku = new Map(products.filter((p) => p.sku).map((p) => [String(p.sku).trim().toLowerCase(), p]));
 
-  const res = { imported: 0, updated: 0, skippedDuplicate: 0, skippedCustomerNotFound: [], autoCreatedProducts: [], totalValue: 0 };
+  const res = { imported: 0, updated: 0, skippedDuplicate: 0, skippedCustomerNotFound: [], autoCreatedProducts: [], totalValue: 0, withDeliveryDate: 0, range: { from: null, to: null } };
 
   // تجميع الأسطر في طلبيات بحسب رقم الـ Sales Document
   const groups = new Map();
-  parseRows(text).forEach(([dateStr, salesDoc, custCode, material, materialDesc, qty, netPrice, status]) => {
+  parseHistRows(text, { useDeliveryDate }).rows.forEach(({ date: dateStr, doc: salesDoc, cust: custCode, mat: material, desc: materialDesc, qty, net: netPrice, status, gi, proxy }) => {
     if (!salesDoc || salesDoc.trim().toLowerCase() === 'sales document') return; // تخطي صف العناوين
     salesDoc = salesDoc.trim();
     if (cutoffDate && dateStr && dateStr.trim() > cutoffDate) return;
     if (!groups.has(salesDoc)) groups.set(salesDoc, []);
-    groups.get(salesDoc).push({ date: (dateStr || '').trim(), custCode: (custCode || '').trim(), material: (material || '').trim(), materialDesc: (materialDesc || '').trim(), qty: toNum(qty), netPrice: toNum(netPrice), status: (status || '').trim() });
+    groups.get(salesDoc).push({ date: (dateStr || '').trim(), custCode: (custCode || '').trim(), material: (material || '').trim(), materialDesc: (materialDesc || '').trim(), qty: toNum(qty), netPrice: toNum(netPrice), status: (status || '').trim(), gi: (gi || '').trim(), proxy: !!proxy });
   });
 
   groups.forEach((lines, salesDoc) => {
@@ -721,7 +771,9 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14, updateM
         productBySku.set(l.material.toLowerCase(), product);
         res.autoCreatedProducts.push(`${l.material} — ${l.materialDesc || l.material}`);
       }
-      return { productId: product.id, qty: l.qty, unitPrice, listPriceAtSale: unitPrice, status: STATUS_MAP[l.status] || 'confirmed' };
+      const st = STATUS_MAP[l.status] || 'confirmed';
+      if (st === 'delivered' && l.gi) res.withDeliveryDate++;
+      return { productId: product.id, qty: l.qty, unitPrice, listPriceAtSale: unitPrice, status: st, ...(st === 'delivered' && l.gi ? { deliveredAt: l.gi < relevant[0].date ? relevant[0].date : l.gi, ...(l.proxy ? { deliveredProxy: true } : {}) } : {}) };
     });
 
     const subtotal = items.reduce((s, i) => s + i.qty * i.unitPrice, 0);
@@ -741,6 +793,9 @@ function importHistoricalOrders(text, { cutoffDate = null, vatRate = 14, updateM
       res.imported++;
     }
     res.totalValue += subtotal;
+    const dd = String(relevant[0].date).slice(0, 10);
+    if (dd && (!res.range.from || dd < res.range.from)) res.range.from = dd;
+    if (dd && (!res.range.to || dd > res.range.to)) res.range.to = dd;
   });
 
   return res;
@@ -1357,38 +1412,9 @@ function importProducts(text, { update = false, archivedOnly = false } = {}) {
 // مندوبو المبيعات (Sales Reps)
 // ------------------------------------------------------------
 
-function addRep({ name, phone = '' }) {
-  return addRecord(STORAGE_KEYS.REPS, { name, phone });
-}
-
 // ------------------------------------------------------------
 // الأهداف والعمولات (Targets & Commissions)
 // ------------------------------------------------------------
-
-/**
- * entityType: 'customer' | 'rep'
- * period: مثال '2026-09' (شهري) أو '2026' (سنوي)
- */
-function setTarget({ entityType, entityId, period, targetAmount, commissionRate = 0, vatRate = 14 }) {
-  return addRecord(STORAGE_KEYS.TARGETS, { entityType, entityId, period, targetAmount, commissionRate, vatRate: Number(vatRate) || 0 });
-}
-
-/**
- * الإنجاز الفعلي = مجموع المبيعات لنفس الكيان في نفس الفترة، بعد استخراج ضريبة
- * القيمة المضافة من سعر اللست (القيمة ÷ (1 + vatRate/100))، عشان "المحقق" يبقى
- * صافي القيمة الحقيقية مش شامل الضريبة. لو target.vatRate = 0 مفيش استخراج خالص.
- */
-function getTargetProgress(targetId) {
-  const target = getAll(STORAGE_KEYS.TARGETS).find((t) => t.id === targetId);
-  if (!target) return null;
-  const mine = (x) => (target.entityType === 'customer' ? x.customerId : x.repId) === target.entityId;
-  const gross = getDeliveredLines().filter((l) => mine(l) && inPeriod(l.date, target.period)).reduce((s, l) => s + l.value, 0)
-    - getDeliveredReturns().filter((r) => mine(r) && inPeriod(r.date, target.period)).reduce((s, r) => s + r.value, 0);
-  const achieved = gross / (1 + (target.vatRate || 0) / 100);
-  const percentage = target.targetAmount > 0 ? (achieved / target.targetAmount) * 100 : 0;
-  const commission = achieved * (target.commissionRate / 100);
-  return { ...target, achieved, percentage: Math.round(percentage * 100) / 100, commission };
-}
 
 // ------------------------------------------------------------
 // التارجت الشهري الخاص بيك (KPIs متغيّرة كل شهر بأوزان مختلفة)
@@ -1434,33 +1460,6 @@ function productFamily(category) {
 function getFamilies() {
   const fams = new Set(getAll(STORAGE_KEYS.PRODUCTS).map((p) => productFamily(p.category)));
   return [...fams].sort((a, b) => a.localeCompare(b, 'ar'));
-}
-
-/** مفتاح الفترة لتاريخ معيّن حسب الدقة المطلوبة */
-function periodKey(dateStr, granularity) {
-  const d = new Date(dateStr);
-  if (isNaN(d)) return null;
-  const y = d.getFullYear();
-  const m = d.getMonth() + 1; // 1-12
-  if (granularity === 'month') return `${y}-${String(m).padStart(2, '0')}`;
-  if (granularity === 'quarter') return `${y}-Q${Math.ceil(m / 3)}`;
-  if (granularity === 'year') return `${y}`;
-  return 'all';
-}
-
-/** مفتاح نفس الفترة بالظبط بس قبل N سنة (للمقارنة السنوية) */
-function shiftPeriodKeyYears(key, granularity, yearsBack = 1) {
-  if (granularity === 'all' || !key) return null;
-  if (granularity === 'month') {
-    const [y, m] = key.split('-');
-    return `${Number(y) - yearsBack}-${m}`;
-  }
-  if (granularity === 'quarter') {
-    const [y, q] = key.split('-Q');
-    return `${Number(y) - yearsBack}-Q${q}`;
-  }
-  if (granularity === 'year') return String(Number(key) - yearsBack);
-  return null;
 }
 
 /** تسمية عرض مفهومة للمفتاح */
@@ -1509,7 +1508,7 @@ function getAnalyticsLines(vatRate = 14) {
         productName: p ? p.name : '(منتج محذوف)',
         family: p ? productFamily(p.category) : 'بدون تصنيف',
         qty: it.qty,
-        value: (it.qty * it.unitPrice) / vatDivisor,
+        value: (it.qty * it.unitPrice * (1 - (o.discountRate || 0) / 100)) / vatDivisor,
       });
     });
     // المرتجعات بتتخصم كسطر سالب بنفس الصنف والفاميلي، بنفس تاريخ المرتجع
@@ -1616,9 +1615,6 @@ function productCodeAndDesc(p) {
 }
 
 /** كل أسطر المبيعات المسلَّمة فعلياً (الصنف حالته Delivered) بتاريخ تسليمها، وقيمتها بعد خصم الطلبية (شاملة الضريبة) */
-/** صنف اتباع بسعر عرض: سعر البيع أقل من سعر اللست وقت البيع (نفس منطق بادج "عرض") */
-function isPromoItem(it) { return !!(it && it.listPriceAtSale && it.listPriceAtSale > it.unitPrice + 0.01); }
-
 function getDeliveredLines() {
   const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
   const lines = [];
@@ -1630,7 +1626,7 @@ function getDeliveredLines() {
       lines.push({
         orderId: o.id, customerId: o.customerId, repId: o.repId || null, productId: it.productId,
         productName: p ? p.name : '(منتج محذوف)', category: p ? p.category : '',
-        qty: it.qty, value: it.qty * it.unitPrice * factor, date: it.deliveredAt || o.deliveredAt || o.date, historical: !!o.historicalImport, promo: isPromoItem(it),
+        qty: it.qty, value: it.qty * it.unitPrice * factor, date: it.deliveredAt || o.deliveredAt || o.date, historical: !!o.historicalImport && (!it.deliveredAt || !!it.deliveredProxy),
       });
     });
   });
@@ -1641,8 +1637,8 @@ function getDeliveredLines() {
 function getDeliveredReturns() {
   const orders = getReportOrders();
   const oMap = new Map(orders.map((o) => [o.id, o]));
-  const delivered = new Map();
-  orders.forEach((o) => o.items.forEach((it) => { if (it.status === 'delivered') delivered.set(`${o.id}|${it.productId}`, isPromoItem(it)); }));
+  const delivered = new Set();
+  orders.forEach((o) => o.items.forEach((it) => { if (it.status === 'delivered') delivered.add(`${o.id}|${it.productId}`); }));
   const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
   const out = [];
   validReturns().forEach((r) => {
@@ -1651,7 +1647,7 @@ function getDeliveredReturns() {
     r.items.forEach((ri) => {
       if (!delivered.has(`${r.orderId}|${ri.productId}`)) return;
       const p = pMap.get(ri.productId);
-      out.push({ orderId: r.orderId, customerId: o.customerId, repId: o.repId || null, productId: ri.productId, category: p ? p.category : '', qty: ri.qty, value: ri.qty * (ri.unitPrice || 0), date: r.date, promo: !!delivered.get(`${r.orderId}|${ri.productId}`) });
+      out.push({ orderId: r.orderId, customerId: o.customerId, repId: o.repId || null, productId: ri.productId, category: p ? p.category : '', qty: ri.qty, value: ri.qty * (ri.unitPrice || 0), date: r.date });
     });
   });
   return out;
@@ -1665,7 +1661,7 @@ function getKpiDetailsFor(kpi) {
   if (!kpi || kpi.metricType === 'manual_percent') return null;
   if (kpi.metricType === 'white_space_dealers') return { kind: 'whitespace', rows: getWhiteSpaceDetail(kpi) };
   const customers = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c.name]));
-  const lines = getDeliveredLines().filter((l) => inPeriod(l.date, kpi.period) && (kpi.metricType === 'promo_value' ? l.promo : kpi.metricType === 'nonpromo_value' ? !l.promo : (!kpi.category || kpi.metricType === 'total_value' || hasCat(l.category, kpi.category))));
+  const lines = getDeliveredLines().filter((l) => inPeriod(l.date, kpi.period) && (!kpi.category || kpi.metricType === 'total_value' || hasCat(l.category, kpi.category)));
   const vatDiv = 1 + (kpi.vatRate || 0) / 100;
   const agg = (keyFn, nameFn) => {
     const m = new Map();
@@ -1682,12 +1678,12 @@ function getPeriodTotalValue(period, vatRate = 14) {
 
 /** قالب KPIs الشهرية: نفس لوحة الـ Power BI */
 const TARGET_TEMPLATE = [
-  { key: 'dealers', name: 'Dealers', metricType: 'active_dealers', defaultWeight: 0, unit: 'تاجر' },
-  { key: 'fs90', name: 'FS90', metricType: 'category_count', category: 'بوتاجازات', defaultWeight: 0, unit: 'قطعة' },
-  { key: 'promo', name: 'Promo', metricType: 'promo_value', defaultWeight: 0, defaultTarget: 2284800, unit: 'ج.م' },
-  { key: 'nonpromo', name: 'NonPromo', metricType: 'nonpromo_value', defaultWeight: 0, defaultTarget: 4435200, unit: 'ج.م' },
-  { key: 'overdue', name: 'OverDue', metricType: 'manual_percent', defaultWeight: 0, unit: '%' },
-  { key: 'whitespace', name: 'WhiteSpace', metricType: 'white_space_dealers', defaultWeight: 0, unit: 'تاجر' },
+  { key: 'dealers', name: 'Dealers', metricType: 'active_dealers', defaultWeight: 10, unit: 'تاجر' },
+  { key: 'fs90', name: 'FS90', metricType: 'category_count', category: 'بوتاجازات', defaultWeight: 20, unit: 'قطعة' },
+  { key: 'mda', name: 'MDA', metricType: 'category_value', category: 'MDA', defaultWeight: 35, unit: 'ج.م' },
+  { key: 'overdue', name: 'OverDue', metricType: 'manual_percent', defaultWeight: 10, unit: '%' },
+  { key: 'sda', name: 'SDA', metricType: 'category_value', category: 'SDA', defaultWeight: 10, unit: 'ج.م' },
+  { key: 'whitespace', name: 'WhiteSpace', metricType: 'white_space_dealers', defaultWeight: 15, unit: 'تاجر' },
 ];
 
 function previousPeriod(period) {
@@ -1702,13 +1698,13 @@ function getMonthlyTargetsForm(period) {
   const cur = all.filter((k) => k.period === period), prev = all.filter((k) => k.period === previousPeriod(period));
   return TARGET_TEMPLATE.map((t) => {
     const saved = cur.find((k) => k.name === t.name), src = saved || prev.find((k) => k.name === t.name);
-    return { ...t, weight: src ? src.weight : t.defaultWeight, targetValue: src ? src.targetValue : (t.defaultTarget !== undefined ? t.defaultTarget : ''), manualPercent: src && src.manualPercent !== undefined && src.manualPercent !== null ? src.manualPercent : 100, saved: !!saved, fromPrev: !saved && !!src };
+    return { ...t, weight: src ? src.weight : t.defaultWeight, targetValue: src ? src.targetValue : '', manualPercent: src && src.manualPercent !== undefined && src.manualPercent !== null ? src.manualPercent : 100, saved: !!saved, fromPrev: !saved && !!src };
   });
 }
 
 /** حفظ تارجت الشهر: بيستبدل KPIs القالب بتاعة الشهر ده (الـ KPIs المخصصة بتفضل زي ما هي) */
 function saveMonthlyTargets(period, rows, { vatRate = 14 } = {}) {
-  const names = [...TARGET_TEMPLATE.map((t) => t.name), 'MDA', 'SDA']; // MDA/SDA القديمين بيتشالوا لو الشهر اتحفظ تاني
+  const names = TARGET_TEMPLATE.map((t) => t.name);
   saveAll(STORAGE_KEYS.KPIS, getAll(STORAGE_KEYS.KPIS).filter((k) => !(k.period === period && names.includes(k.name))));
   rows.forEach((r) => {
     const t = TARGET_TEMPLATE.find((x) => x.key === r.key);
@@ -1716,7 +1712,7 @@ function saveMonthlyTargets(period, rows, { vatRate = 14 } = {}) {
     addKpi({
       period, name: t.name, metricType: t.metricType, category: t.category || null, weight: Number(r.weight) || 0,
       targetValue: t.metricType === 'manual_percent' ? 100 : Number(r.targetValue) || 0,
-      vatRate: ['category_value', 'promo_value', 'nonpromo_value'].includes(t.metricType) ? vatRate : 0, minFamilies: 4,
+      vatRate: t.metricType === 'category_value' ? vatRate : 0, minFamilies: 4,
       manualPercent: t.metricType === 'manual_percent' ? (r.manualPercent === '' || r.manualPercent === undefined ? 100 : Number(r.manualPercent)) : null,
     });
   });
@@ -2029,83 +2025,6 @@ function getSalesTimeBreakdown({ year, granularity = 'month', customerIds = [], 
   return rows;
 }
 
-/** كل الفترات اللي فيها بيانات فعلاً لدقة معيّنة، الأحدث أولاً — لتعبئة قايمة اختيار الفترة */
-function getAvailablePeriods(granularity, vatRate = 14) {
-  if (granularity === 'all') return [];
-  const lines = getAnalyticsLines(vatRate);
-  const keys = new Set(lines.map((l) => periodKey(l.date, granularity)).filter(Boolean));
-  return [...keys].sort().reverse().map((k) => ({ key: k, label: periodLabel(k, granularity) }));
-}
-
-function matchesLevel(line, level, levelValue) {
-  if (level === 'family') return line.family === levelValue;
-  if (level === 'product') return line.productId === levelValue;
-  if (level === 'customer') return line.customerId === levelValue;
-  return true; // overview
-}
-
-/**
- * التحليل الكامل لمستوى معيّن (فاميلي/منتج/عميل/نظرة عامة) ودقة زمنية ومفتاح فترة.
- * بيرجّع: القيمة والكمية وعدد العملاء النشطين للفترة، اتجاه كل الفترات المتاحة،
- * مقارنة بنفس الفترة السنة اللي فاتت، وتفصيل (breakdown) مختلف حسب المستوى.
- */
-function getAnalytics({ level = 'overview', levelValue = null, granularity = 'month', periodKey: pKey = null, vatRate = 14 } = {}) {
-  const lines = getAnalyticsLines(vatRate).filter((l) => matchesLevel(l, level, levelValue));
-
-  // كل الفترات المتاحة في البيانات لهذا المستوى، للرسم البياني
-  const byPeriod = new Map();
-  lines.forEach((l) => {
-    const k = granularity === 'all' ? 'all' : periodKey(l.date, granularity);
-    if (!k) return;
-    if (!byPeriod.has(k)) byPeriod.set(k, { value: 0, qty: 0, customers: new Set() });
-    const agg = byPeriod.get(k);
-    agg.value += l.value;
-    agg.qty += l.qty;
-    agg.customers.add(l.customerId);
-  });
-  const trend = [...byPeriod.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([key, agg]) => ({ key, label: periodLabel(key, granularity), value: Math.round(agg.value * 100) / 100, qty: agg.qty, activeDealers: agg.customers.size }));
-
-  const currentKey = granularity === 'all' ? 'all' : (pKey || trend.at(-1)?.key || null);
-  const current = byPeriod.get(currentKey) || { value: 0, qty: 0, customers: new Set() };
-  const prevKey = granularity === 'all' ? null : shiftPeriodKeyYears(currentKey, granularity, 1);
-  const previous = prevKey ? byPeriod.get(prevKey) : null;
-  const comparison = {
-    currentKey, currentLabel: periodLabel(currentKey, granularity),
-    previousKey: prevKey, previousLabel: prevKey ? periodLabel(prevKey, granularity) : null,
-    currentValue: Math.round(current.value * 100) / 100,
-    previousValue: previous ? Math.round(previous.value * 100) / 100 : null,
-    deltaPct: previous && previous.value > 0 ? Math.round(((current.value - previous.value) / previous.value) * 10000) / 100 : null,
-  };
-
-  const currentLines = granularity === 'all' ? lines : lines.filter((l) => periodKey(l.date, granularity) === currentKey);
-
-  // تفصيل مختلف حسب المستوى
-  let breakdown = [];
-  if (level === 'overview') {
-    breakdown = aggregateBy(currentLines, (l) => l.family, 'family').slice(0, 10);
-  } else if (level === 'family') {
-    breakdown = aggregateBy(currentLines, (l) => l.productId, 'product').slice(0, 20);
-  } else if (level === 'product') {
-    breakdown = aggregateBy(currentLines, (l) => l.customerId, 'customer').slice(0, 20);
-  } else if (level === 'customer') {
-    const byFam = aggregateBy(currentLines, (l) => l.family, 'family');
-    breakdown = byFam;
-  }
-
-  let topCustomers = [];
-  if (level === 'overview') topCustomers = aggregateBy(currentLines, (l) => l.customerId, 'customer').slice(0, 10);
-
-  return {
-    level, levelValue, granularity,
-    value: Math.round(current.value * 100) / 100,
-    qty: current.qty,
-    activeDealers: current.customers.size,
-    trend, comparison, breakdown, topCustomers,
-  };
-}
-
 function aggregateBy(lines, keyFn, kind) {
   const map = new Map();
   lines.forEach((l) => {
@@ -2126,45 +2045,6 @@ function aggregateBy(lines, keyFn, kind) {
   return [...map.values()]
     .map((a) => ({ key: a.key, name: a.name, value: Math.round(a.value * 100) / 100, qty: a.qty, familyCount: a.families.size }))
     .sort((a, b) => b.value - a.value);
-}
-
-/**
- * تنبيهات ذكية: عملاء صاعدين/هابطين بشكل ملحوظ (مقارنة بنفس الفترة السنة اللي فاتت)،
- * وفاميلي ضعيفة (نازلة عن نفس الفترة السنة اللي فاتت). العتبة الافتراضية 25%.
- */
-function getSmartAlerts({ granularity = 'month', periodKey: pKey = null, vatRate = 14, threshold = 25 } = {}) {
-  const lines = getAnalyticsLines(vatRate);
-  const currentKey = granularity === 'all' ? null : (pKey || [...new Set(lines.map((l) => periodKey(l.date, granularity)))].sort().at(-1));
-  if (!currentKey) return { risingCustomers: [], fallingCustomers: [], weakFamilies: [] };
-  const prevKey = shiftPeriodKeyYears(currentKey, granularity, 1);
-
-  const curLines = lines.filter((l) => periodKey(l.date, granularity) === currentKey);
-  const prevLines = lines.filter((l) => periodKey(l.date, granularity) === prevKey);
-
-  function deltaList(keyFn, nameFn) {
-    const cur = new Map(), prev = new Map();
-    curLines.forEach((l) => cur.set(keyFn(l), (cur.get(keyFn(l)) || 0) + l.value));
-    prevLines.forEach((l) => prev.set(keyFn(l), (prev.get(keyFn(l)) || 0) + l.value));
-    const keys = new Set([...cur.keys(), ...prev.keys()]);
-    const out = [];
-    keys.forEach((k) => {
-      const c = cur.get(k) || 0, p = prev.get(k) || 0;
-      if (p < 100) return; // تجاهل اللي مالوش حجم يُذكر السنة اللي فاتت (نسبة % بتبقى مضللة)
-      const pct = Math.round(((c - p) / p) * 10000) / 100;
-      out.push({ key: k, name: nameFn(k), current: Math.round(c), previous: Math.round(p), deltaPct: pct });
-    });
-    return out;
-  }
-
-  const custDeltas = deltaList((l) => l.customerId, (id) => (lines.find((l) => l.customerId === id) || {}).customerName || '?');
-  const famDeltas = deltaList((l) => l.family, (f) => f);
-
-  return {
-    periodKey: currentKey, previousKey: prevKey,
-    risingCustomers: custDeltas.filter((d) => d.deltaPct >= threshold).sort((a, b) => b.deltaPct - a.deltaPct).slice(0, 10),
-    fallingCustomers: custDeltas.filter((d) => d.deltaPct <= -threshold).sort((a, b) => a.deltaPct - b.deltaPct).slice(0, 10),
-    weakFamilies: famDeltas.filter((d) => d.deltaPct <= -threshold).sort((a, b) => a.deltaPct - b.deltaPct),
-  };
 }
 
 /**
@@ -2197,14 +2077,13 @@ function computeKpiAchieved(kpi) {
   if (kpi.metricType === 'active_dealers') return new Set(lines.map((l) => l.customerId)).size;
   if (kpi.metricType === 'white_space_dealers') return getWhiteSpaceDetail(kpi).length;
 
-  const promoType = kpi.metricType === 'promo_value' || kpi.metricType === 'nonpromo_value';
-  const scoped = (x) => promoType ? (!!x.promo === (kpi.metricType === 'promo_value')) : (!kpi.category || kpi.metricType === 'total_value' || hasCat(x.category, kpi.category));
+  const scoped = (x) => !kpi.category || kpi.metricType === 'total_value' || hasCat(x.category, kpi.category);
   const sumValue = (arr) => arr.filter(scoped).reduce((s, x) => s + x.value, 0);
   const sumQty = (arr) => arr.filter(scoped).reduce((s, x) => s + x.qty, 0);
   const vatDiv = 1 + (kpi.vatRate || 0) / 100;
   const deduction = 1 - (kpi.deductionPercent || 0) / 100;
 
-  if (kpi.metricType === 'total_value' || kpi.metricType === 'category_value' || promoType) return ((sumValue(lines) - sumValue(rets)) / vatDiv) * deduction;
+  if (kpi.metricType === 'total_value' || kpi.metricType === 'category_value') return ((sumValue(lines) - sumValue(rets)) / vatDiv) * deduction;
   if (kpi.metricType === 'category_count') return sumQty(lines) - sumQty(rets);
   return 0;
 }
@@ -2355,7 +2234,7 @@ function getDealerTargetsOverview(year, now = new Date()) {
 /** المحقق لكل KPI في القالب لشهر معيّن، من غير تارجت ولا وزن (للرجوع لأي شهر قديم). OverDue بيتخطى لأنه يدوي */
 function getAchievedOnlyKpis(period, { vatRate = 14 } = {}) {
   return TARGET_TEMPLATE.filter((t) => t.metricType !== 'manual_percent').map((t) => {
-    const kpi = { id: null, period, name: t.name, metricType: t.metricType, category: t.category || null, weight: 0, targetValue: 0, deductionPercent: 0, minFamilies: 4, manualPercent: null, vatRate: ['category_value', 'promo_value', 'nonpromo_value'].includes(t.metricType) ? (Number(vatRate) || 0) : 0 };
+    const kpi = { id: null, period, name: t.name, metricType: t.metricType, category: t.category || null, weight: 0, targetValue: 0, deductionPercent: 0, minFamilies: 4, manualPercent: null, vatRate: t.metricType === 'category_value' ? (Number(vatRate) || 0) : 0 };
     return { ...kpi, unit: t.unit, achieved: Math.round(computeKpiAchieved(kpi) * 100) / 100 };
   });
 }
@@ -2886,6 +2765,119 @@ function applyPromoPrices(chosen) {
   return res;
 }
 
+
+// ------------------------------------------------------------
+// جدول الحقائق (Fact Table): سطر لكل صنف مباع (والمرتجع بالسالب) بكل أبعاده، أساس المستكشف.
+// net = بعد خصم التاجر ÷ (1+vat). basis: 'delivery' (Delivered بتاريخ التسليم) أو 'order' (كل الأصناف بتاريخ الطلب).
+// ------------------------------------------------------------
+function getFactRows({ basis = 'delivery', vatRate = 14 } = {}) {
+  const div = 1 + (Number(vatRate) || 0) / 100;
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
+  const cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c]));
+  const rets = new Map();
+  validReturns().forEach((r) => { if (!rets.has(r.orderId)) rets.set(r.orderId, []); rets.get(r.orderId).push(r); });
+  const rows = [];
+  const base = (o, p, c) => ({ customerId: o.customerId, customer: c ? c.name : '(محذوف)', code: c ? c.code || '' : '', productId: p ? p.id : '', sku: p ? p.sku || '' : '', product: p ? p.name : '(منتج محذوف)',
+    category: p ? p.category || '' : '', division: p ? productDivision(p.category) : 'بدون تصنيف', family: p ? productFamily(p.category) : 'بدون تصنيف', invoiceNo: o.invoiceNo || '', orderNumber: o.orderNumber || '', orderStatus: o.status || '' });
+  getReportOrders().forEach((o) => {
+    const c = cMap.get(o.customerId), f = 1 - (o.discountRate || 0) / 100, delivered = new Set();
+    o.items.forEach((it) => {
+      const isDel = it.status === 'delivered';
+      if (basis === 'delivery' && !isDel) return;
+      if (isDel) delivered.add(it.productId);
+      const p = pMap.get(it.productId), date = String(basis === 'delivery' ? (it.deliveredAt || o.deliveredAt || o.date) : o.date).slice(0, 10);
+      rows.push({ ...base(o, p, c), date, itemStatus: it.status || 'unconfirmed', qty: it.qty, gross: it.qty * it.unitPrice * f, net: (it.qty * it.unitPrice * f) / div, kind: 'بيع', deferred: !!o.deferred });
+    });
+    (rets.get(o.id) || []).forEach((r) => r.items.forEach((ri) => {
+      if (basis === 'delivery' && !delivered.has(ri.productId)) return;
+      const p = pMap.get(ri.productId), v = ri.qty * (ri.unitPrice || 0);
+      rows.push({ ...base(o, p, c), date: String(r.date).slice(0, 10), itemStatus: 'returned', qty: -ri.qty, gross: -v, net: -v / div, kind: 'مرتجع', deferred: false });
+    }));
+  });
+  return rows;
+}
+
+
+// ------------------------------------------------------------
+// تحليل الإمداد: الفرص الضايعة بسبب الإمداد (مؤجَّل، مفتوح غير مسلَّم، Backorder على الساب) ونسب التلبية.
+// القيم صافي بعد خصم التاجر ÷ (1+ضريبة)؛ أعمدة "gross" شاملة الضريبة بعد الخصم (للمقارنة مع Slabs التجار).
+// الفترة بتاريخ الطلب. requested = delivered + open + deferred.
+// ------------------------------------------------------------
+function getSupplyAnalysis({ from = '', to = '', vatRate = 14 } = {}) {
+  const div = 1 + (Number(vatRate) || 0) / 100;
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p]));
+  const cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map((c) => [c.id, c]));
+  const T = { requested: 0, delivered: 0, open: 0, deferred: 0, unconfirmed: 0, confirmed: 0, release: 0, reqQty: 0, delQty: 0, defQty: 0, openQty: 0 };
+  const dealers = new Map(), prods = new Map();
+  getReportOrders().forEach((o) => {
+    const d = String(o.date).slice(0, 10);
+    if ((from && d < from) || (to && d > to)) return;
+    const f = 1 - (o.discountRate || 0) / 100, c = cMap.get(o.customerId) || {};
+    const D = dealers.get(o.customerId) || { customerId: o.customerId, name: c.name || '(محذوف)', code: c.code || '', requested: 0, delivered: 0, open: 0, deferred: 0, grossPending: 0 };
+    o.items.forEach((it) => {
+      const g = it.qty * it.unitPrice * f, n = g / div, k = o.deferred ? 'deferred' : it.status === 'delivered' ? 'delivered' : 'open';
+      T.requested += n; T.reqQty += it.qty; D.requested += n; T[k] += n; D[k] += n;
+      if (k === 'delivered') T.delQty += it.qty;
+      if (k === 'deferred') T.defQty += it.qty;
+      if (k === 'open') { T.openQty += it.qty; T[it.status && it.status in T ? it.status : 'unconfirmed'] += n; }
+      if (k !== 'delivered') {
+        D.grossPending += g;
+        const p = pMap.get(it.productId), P = prods.get(it.productId) || { productId: it.productId, sku: (p && p.sku) || '', name: p ? p.name : '?', fs90: isFS90Product(p), qty: 0, net: 0, dealers: new Set() };
+        P.qty += it.qty; P.net += n; P.dealers.add(o.customerId); prods.set(it.productId, P);
+      }
+    });
+    dealers.set(o.customerId, D);
+  });
+  const rate = (a, b) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
+  const year = Number((from || new Date().toISOString()).slice(0, 4));
+  const byDealer = [...dealers.values()].map((D) => {
+    const pr = getDealerTargetProgress(D.customerId, year), fs = pr.hasTargets && pr.focus.slab ? pr.focus.slab : null;
+    return { ...D, fillRate: rate(D.delivered, D.requested), targetSlab: fs ? fs.name : null, targetRemaining: fs ? fs.remaining : null, closesGap: fs && !fs.reached ? D.grossPending >= fs.remaining : null };
+  }).sort((a, b) => (b.deferred + b.open) - (a.deferred + a.open));
+  const w = getAtpWatchlist();
+  const backorders = w.negatives.map((r) => {
+    const p = pMap.get(r.productId), short = Math.max(-r.effective, 0);
+    return { sku: r.sku, name: r.name, fs90: r.fs90, effective: r.effective, incoming: r.incoming || 0, short, value: Math.round((short * ((p && p.basePrice) || 0)) / div), orders: r.orders };
+  });
+  return {
+    totals: { ...T, fillRate: rate(T.delivered, T.requested), deferredShare: rate(T.deferred, T.requested), openShare: rate(T.open, T.requested), qtyFill: rate(T.delQty, T.reqQty) },
+    byDealer, backorders, atpAgeDays: w.ageDays,
+    products: [...prods.values()].map((P) => ({ ...P, dealers: P.dealers.size })).sort((a, b) => b.net - a.net).slice(0, 15),
+  };
+}
+
+// ------------------------------------------------------------
+// التاجر 360°: كل حاجة عن تاجر في سنة: مبيعات شهرية ومقارنة، فاميلي ومنتجات، White Space وفرصه، مخزونه، تارجته، والإمداد.
+// ------------------------------------------------------------
+function getDealer360(customerId, year, { vatRate = 14 } = {}) {
+  year = Number(year);
+  const all = getFactRows({ basis: 'delivery', vatRate }), mine = all.filter((r) => r.customerId === customerId);
+  const yr = (rows, y) => rows.filter((r) => Number(r.date.slice(0, 4)) === y);
+  const cur = yr(mine, year), prev = yr(mine, year - 1), sum = (rows) => rows.reduce((s, r) => s + r.net, 0);
+  const monthly = (rows) => Array.from({ length: 12 }, (_, m) => rows.filter((r) => Number(r.date.slice(5, 7)) === m + 1).reduce((s, r) => s + r.net, 0));
+  const curM = monthly(cur), prevM = monthly(prev);
+  const lastM = cur.length ? Math.max(...cur.map((r) => Number(r.date.slice(5, 7)))) : 0;
+  const ytdCur = curM.slice(0, lastM).reduce((a, b) => a + b, 0), ytdPrev = prevM.slice(0, lastM).reduce((a, b) => a + b, 0);
+  const grp = (key, label) => { const m = new Map(); [...cur.map((r) => ['c', r]), ...prev.map((r) => ['p', r])].forEach(([k, r]) => { const x = m.get(key(r)) || { name: label(r), cur: 0, prev: 0, qty: 0 }; if (k === 'c') { x.cur += r.net; x.qty += r.qty; } else x.prev += r.net; m.set(key(r), x); }); return [...m.values()].sort((a, b) => b.cur - a.cur); };
+  const families = grp((r) => r.family, (r) => r.family), products = grp((r) => r.productId, (r) => r.sku || r.product).slice(0, 10);
+  const groups = getWhiteSpaceGroups(), has = (g, rows) => rows.some((r) => g.tags.some((tg) => hasCat(r.category, tg)));
+  const bought = groups.filter((g) => has(g, cur)), missing = groups.filter((g) => !has(g, cur));
+  const top3 = (g) => { const m = new Map(); yr(all, year).filter((r) => g.tags.some((tg) => hasCat(r.category, tg))).forEach((r) => m.set(r.sku || r.product, (m.get(r.sku || r.product) || 0) + r.qty)); return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map((x) => x[0]); };
+  const pMap = new Map(getAll(STORAGE_KEYS.PRODUCTS).map((p) => [p.id, p])), stock = getDealerStock(customerId);
+  const orders = new Set(cur.filter((r) => r.kind === 'بيع').map((r) => r.invoiceNo || r.orderNumber)), lastDate = mine.reduce((m, r) => (r.date > m ? r.date : m), '');
+  const pr = getDealerTargetProgress(customerId, year);
+  const sup = getSupplyAnalysis({ from: `${year}-01-01`, to: `${year}-12-31`, vatRate }).byDealer.find((x) => x.customerId === customerId) || null;
+  return {
+    year, vatRate, total: sum(cur), prevTotal: sum(prev), ytdCur, ytdPrev, lastMonth: lastM, curM, prevM, families, products,
+    orders: orders.size, avgOrder: orders.size ? sum(cur) / orders.size : 0, lastDate, daysSince: lastDate ? Math.floor((Date.now() - new Date(lastDate).getTime()) / 86400000) : null,
+    whiteSpace: { total: groups.length, bought: bought.map((g) => g.name), missing: missing.map((g) => ({ name: g.name, suggest: top3(g) })), need: Math.max(4 - bought.length, 0) },
+    stock: { items: stock.length, units: stock.reduce((s, r) => s + r.qty, 0), lastDate: stock.reduce((m, r) => (!m || r.date > m ? r.date : m), null),
+      zero: stock.filter((r) => r.qty === 0).map((r) => (pMap.get(r.productId) || {}).sku || '?') },
+    target: { has: pr.hasTargets, achieved: pr.achieved.total, reached: pr.reachedCount, behindSlab1: pr.behindSlab1, focus: pr.focus.slab ? { name: pr.focus.slab.name, remaining: pr.focus.slab.remaining, perMonth: pr.focus.slab.requiredPerMonth, reached: pr.focus.slab.reached } : null },
+    supply: sup,
+  };
+}
+
 // ------------------------------------------------------------
 // النسخ الاحتياطي والاستيراد (Backup / Restore) - إجباري
 // ------------------------------------------------------------
@@ -2946,12 +2938,11 @@ export {
   getOverCreditLimitCustomers, getCustomerAging, getAgingReport,
   getTopCustomers, getTopProducts,
   // مندوبين
-  addRep, importCustomers, importProducts,
+  importCustomers, importProducts,
   // منتجات ومخزون
-  addProduct, getProductStock, getStockMap, addInventoryTransaction, getLowStockAlerts, isProductUsed,
+  addProduct, getProductStock, getStockMap, addInventoryTransaction, isProductUsed,
   setProductOffer, clearProductOffer, getEffectivePrice,
-  addStockStatusUpdate, importStockStatus, getLatestStockStatus, getStockStatusHistory,
-  importDealerStock, getDealerStock, getDealerStockHistory, getDealersStockOverview,
+  addStockStatusUpdate, importStockStatus, getLatestStockStatus, importDealerStock, getDealerStock, getDealersStockOverview,
   // عمليات مركّبة
   recordSale, recordReceipt,
   // حالات الطلبية والأصناف
@@ -2966,11 +2957,9 @@ export {
   // شيكات
   updateCheckDelivery, markCheckCleared, markCheckBounced, getChecksDueSoon,
   // أهداف
-  setTarget, getTargetProgress,
   // التارجت الشهري (KPIs)
   addKpi, getKpiProgress, getMonthlyScorecard, productFamily,
-  getFamilies, getAnalytics, getSmartAlerts, getAvailablePeriods,
-  isProductHidden, getActiveProducts, syncCatalogToList,
+  getFamilies, isProductHidden, getActiveProducts, syncCatalogToList,
   getSetting, setSetting, getWhiteSpaceGroups, setWhiteSpaceGroups, getTargetCap, setTargetCap, getDeliveredLines, getDeliveredReturns, getKpiDetails, getPeriodTotalValue, TARGET_TEMPLATE, getMonthlyTargetsForm, saveMonthlyTargets, setOrderItemDeliveredAt,
   DIVISIONS, productDivision, productPath, productSubPath, isClassified, setProductClassification, importClassification, getCategoryTree, applyAutoClassification, archiveOrDeleteCatalog,
   getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
@@ -2984,6 +2973,8 @@ export {
   buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp, getAtpWatchlist,
   splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
   previewPromoPrices, applyPromoPrices,
+  getFactRows, getSupplyAnalysis, getDealer360,
+  getPromos, importPromos, deletePromo, getPromoPerformance,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,
 };

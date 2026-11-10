@@ -74,14 +74,19 @@
   <a href="customers.html">💰 العملاء</a>
   <a href="dealer-stock.html">🏬 مخزون التجار</a>
   <a href="invoices.html">📄 الفواتير</a>
-  <a href="checks.html">🧾 الشيكات</a>
   <a href="targets.html">🎯 الأهداف</a>
   <a href="dealer-targets.html">🎯 تارجت التجار</a>
   <a href="analytics.html" class="active">📊 تحليل المبيعات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
 </nav>
 
 <h1>📊 تحليل المبيعات</h1>
-<p class="muted">مقارنة 2026 مقابل 2025، صافية بعد استخراج الضريبة. بتاريخ التسليم أو الطلب حسب الفلتر.</p>
+<p class="muted">مقارنة 2026 مقابل 2025، صافية بعد خصم التاجر وبعد استخراج الضريبة (÷1.14). بتاريخ التسليم أو الطلب حسب الفلتر.</p>
 
 <div class="filter-bar">
   <div class="filter-row">
@@ -293,7 +298,6 @@
 <div class="card">
   <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
     <h2 style="margin:0;">✅ جودة البيانات (Data Quality)</h2>
-    <button type="button" class="danger" id="btnClearHistorical">🗑 مسح كل البيانات التاريخية المستوردة</button>
   </div>
   <div class="dq-row" id="dqBox"></div>
 </div>
@@ -301,7 +305,7 @@
 <script type="module">
 import {
   esc, initStorage, getAll, STORAGE_KEYS,
-  getFamilies, getSalesYears, getSalesOverview, getSalesTimeBreakdown, clearHistoricalImports,
+  getFamilies, getSalesYears, getSalesOverview, getSalesTimeBreakdown,
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
   getAnalyticsDateBasis, setAnalyticsDateBasis,
 } from './erp-data-layer.js';
@@ -719,15 +723,6 @@ document.getElementById('btnResetFilters').addEventListener('click', () => {
   state.compare = true; document.getElementById('f_compare').checked = true;
   refresh();
 });
-document.getElementById('btnClearHistorical').addEventListener('click', () => {
-  if (!confirm('تأكيد مسح كل البيانات التاريخية المستوردة (الأوردرات + حركات الكشف + المنتجات اللي اتسجلت تلقائياً)؟ الفواتير اللي دخلتها إنت بنفسك مش هتتأثر. العملية دي مينفعش تتراجع فيها غير بنسخة احتياطية.')) return;
-  const r = clearHistoricalImports();
-  alert(`تم المسح ✅\nطلبيات: ${r.removedOrders}\nحركات كشف: ${r.removedAdj}\nمنتجات تلقائية: ${r.removedProd}\nأرصدة اتصفّرت: ${r.resetBalances}`);
-  initFilters();
-  renderPeriodSub();
-  refresh();
-});
-
 initFilters();
 populateDrillCustomer();
 renderPeriodSub();
