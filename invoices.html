@@ -229,6 +229,27 @@
   </details>
 </div>
 
+<div class="card">
+  <details id="histMgrDetails">
+    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🗑 مراجعة الأوردرات التاريخية وحذف اللي تختاره</summary>
+    <div style="margin-top:12px;">
+      <p class="muted">بيعرض الأوردرات المستوردة تاريخياً بس (فواتيرك اليدوية مش بتظهر هنا ومستحيل تتمسح من هنا). فلتر، حدد اللي عايزه، وامسح. بينزّل نسخة احتياطية قبل المسح.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+        <select id="hmCust" style="max-width:240px;"></select>
+        <select id="hmYear" style="max-width:110px;"></select>
+        <input type="text" id="hmSearch" placeholder="رقم الطلبية..." style="max-width:160px;">
+        <label style="display:flex; align-items:center; gap:4px; font-size:13px;"><input type="checkbox" id="hmAll" style="flex:none; width:auto;"> تحديد كل المعروض</label>
+        <button type="button" class="danger" id="hmDelete">🗑 حذف المحدد (0)</button>
+      </div>
+      <div id="hmSummary" class="muted"></div>
+      <div style="overflow-x:auto; max-height:420px; overflow-y:auto;"><table>
+        <thead><tr><th></th><th>رقم الطلبية</th><th>العميل</th><th>التاريخ</th><th>أصناف</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
+        <tbody id="hmBody"></tbody>
+      </table></div>
+    </div>
+  </details>
+</div>
+
 </details>
 
 <div class="card">
@@ -268,7 +289,7 @@ import {
   updateOrderNumber, getRenewalDaysLeft, getOrdersNeedingRenewal,
   updateOrderItems, voidOrder, recordReturn, getOrderReturns, getOrderAuditLog,
   getActiveOrders, startNewMonth,
-  updateRecord, downloadBackup, importHistoricalOrders, isProductHidden, productPath, DIVISIONS, setOrderItemDeliveredAt,
+  updateRecord, deleteRecord, downloadBackup, importHistoricalOrders, isProductHidden, productPath, DIVISIONS, setOrderItemDeliveredAt,
   importLedgerAdjustments, importOpeningBalances, getReconciliationReport,
   previewSapSync, applySapSync, buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp,
   splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
@@ -1309,6 +1330,55 @@ function runSyncCompare() {
   renderSync();
 }
 document.getElementById('btnSyncCompare').addEventListener('click', runSyncCompare);
+
+
+// ---------------- مراجعة وحذف الأوردرات التاريخية ----------------
+const hmSel = new Set();
+function hmOrders() { return getAll(STORAGE_KEYS.SALES_ORDERS).filter(o => o.historicalImport && !o.voided); }
+function hmInit() {
+  const orders = hmOrders(), cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map(c => [c.id, c]));
+  const custs = [...new Set(orders.map(o => o.customerId))].sort((a, b) => ((cMap.get(a) || {}).name || '').localeCompare((cMap.get(b) || {}).name || '', 'ar'));
+  const years = [...new Set(orders.map(o => String(o.date).slice(0, 4)))].sort();
+  const pc = document.getElementById('hmCust').value, py = document.getElementById('hmYear').value;
+  document.getElementById('hmCust').innerHTML = '<option value="">كل التجار</option>' + custs.map(id => `<option value="${esc(id)}">${esc((cMap.get(id) || {}).name || '(محذوف)')}</option>`).join('');
+  document.getElementById('hmYear').innerHTML = '<option value="">كل السنين</option>' + years.map(y => `<option>${y}</option>`).join('');
+  if (custs.includes(pc)) document.getElementById('hmCust').value = pc;
+  if (years.includes(py)) document.getElementById('hmYear').value = py;
+  hmRender();
+}
+function hmFiltered() {
+  const c = document.getElementById('hmCust').value, y = document.getElementById('hmYear').value, q = document.getElementById('hmSearch').value.trim().toLowerCase();
+  return hmOrders().filter(o => (!c || o.customerId === c) && (!y || String(o.date).startsWith(y)) && (!q || String(o.orderNumber || '').toLowerCase().includes(q)))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+function hmRender() {
+  const list = hmFiltered(), shown = list.slice(0, 300), cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map(c => [c.id, c.name]));
+  const total = list.reduce((s, o) => s + o.total, 0);
+  document.getElementById('hmSummary').textContent = `${list.length} أوردر — إجمالي ${Math.round(total).toLocaleString()} ج.م شامل الضريبة${list.length > 300 ? ' (معروض أول 300، ضيّق الفلتر)' : ''}`;
+  document.getElementById('hmBody').innerHTML = shown.map(o => `<tr><td><input type="checkbox" class="hm-chk" data-id="${o.id}" ${hmSel.has(o.id) ? 'checked' : ''} style="width:auto; min-width:0;"></td>
+    <td dir="ltr">${esc(o.orderNumber || '')}</td><td>${esc(cMap.get(o.customerId) || '(محذوف)')}</td><td>${String(o.date).slice(0, 10)}</td><td>${o.items.length}</td><td>${Math.round(o.total).toLocaleString()}</td><td>${STATUS_META[o.status || 'unconfirmed']}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">مفيش أوردرات تاريخية مطابقة.</td></tr>';
+  document.querySelectorAll('.hm-chk').forEach(c => c.addEventListener('change', () => { if (c.checked) hmSel.add(c.dataset.id); else hmSel.delete(c.dataset.id); hmCount(); }));
+  hmCount();
+}
+function hmCount() { document.getElementById('hmDelete').textContent = `🗑 حذف المحدد (${hmSel.size})`; }
+['hmCust', 'hmYear'].forEach(id => document.getElementById(id).addEventListener('change', hmRender));
+document.getElementById('hmSearch').addEventListener('input', hmRender);
+document.getElementById('hmAll').addEventListener('change', (e) => {
+  hmFiltered().slice(0, 300).forEach(o => { if (e.target.checked) hmSel.add(o.id); else hmSel.delete(o.id); });
+  hmRender();
+});
+document.getElementById('hmDelete').addEventListener('click', () => {
+  const ids = [...hmSel].filter(id => hmOrders().some(o => o.id === id));
+  if (!ids.length) { alert('حدد أوردر واحد على الأقل'); return; }
+  if (!confirm(`هتمسح ${ids.length} أوردر تاريخي نهائياً (هيتشالوا من رصيد العميل والتحليل والتارجت). هننزّل نسخة احتياطية الأول. تكمل؟`)) return;
+  downloadBackup();
+  ids.forEach(id => deleteRecord(STORAGE_KEYS.SALES_ORDERS, id));
+  hmSel.clear();
+  alert(`تم مسح ${ids.length} أوردر ✅`);
+  hmInit();
+  refresh();
+});
+document.getElementById('histMgrDetails').addEventListener('toggle', (e) => { if (e.target.open) hmInit(); });
 
 addLineItemRow();
 refresh();
