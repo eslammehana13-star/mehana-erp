@@ -86,7 +86,7 @@
 </nav>
 
 <h1>📊 تحليل المبيعات</h1>
-<p class="muted">مقارنة 2026 مقابل 2025، صافية بعد خصم التاجر وبعد استخراج الضريبة (÷1.14). بتاريخ التسليم أو الطلب حسب الفلتر.</p>
+<p class="muted">مقارنة أي مدتين (سنتين، شهرين، أو أي مدد من/إلى)، صافية بعد خصم التاجر وبعد استخراج الضريبة (÷1.14). بتاريخ التسليم أو الطلب حسب الفلتر.</p>
 
 <div class="filter-bar">
   <div class="filter-row">
@@ -99,9 +99,13 @@
       <option value="month">شهر/أشهر محددة</option>
       <option value="quarter">ربع سنة</option>
       <option value="half">نصف سنة</option>
+      <option value="custom">مدة مخصصة (من/إلى)</option>
     </select>
     <div id="periodSub"></div>
-    <label class="toggle-wrap"><input type="checkbox" id="f_compare" checked> وضع المقارنة (2025)</label>
+    <label class="toggle-wrap"><input type="checkbox" id="f_compare" checked> وضع المقارنة</label>
+    <span class="filter-label">قارن بـ</span>
+    <select id="f_cmpMode"><option value="prev">نفس الفترة، السنة اللي قبلها</option><option value="year">نفس الفترة، سنة تانية</option><option value="range">مدة مخصصة (من/إلى)</option></select>
+    <div id="cmpSub"></div>
     <span class="filter-label">حسب</span>
     <select id="f_basis">
       <option value="delivery">تاريخ التسليم</option>
@@ -307,13 +311,16 @@ import {
   esc, initStorage, getAll, STORAGE_KEYS,
   getFamilies, getSalesYears, getSalesOverview, getSalesTimeBreakdown,
   getCustomerAnalysisRows, getFamilyAnalysisRows, getProductAnalysisRows, getCustomerFamilyMatrix, getDetailedSalesLines,
-  getAnalyticsDateBasis, setAnalyticsDateBasis,
+  getAnalyticsDateBasis, setAnalyticsDateBasis, setAnalyticsRange,
 } from './erp-data-layer.js';
 
 initStorage();
 
 // ---------------- حالة الفلاتر ----------------
-const state = { year: null, periodType: 'ytd', months: [], quarters: [], halves: [], customerIds: [], familyNames: [], productIds: [], compare: true, granularity: 'month' };
+const state = { year: null, periodType: 'ytd', months: [], quarters: [], halves: [], customerIds: [], familyNames: [], productIds: [], compare: true, granularity: 'month', from: '', to: '', cmpMode: 'prev', cmpYear: null, cmpFrom: '', cmpTo: '' };
+function cmpL() { return state.cmpMode === 'range' ? `${state.cmpFrom || '?'}→${state.cmpTo || '?'}` : String(state.cmpMode === 'year' && state.cmpYear ? state.cmpYear : state.year - 1); }
+function curL() { return state.periodType === 'custom' ? `${state.from || '?'}→${state.to || '?'}` : String(state.year); }
+function applyRange() { const c = state.periodType === 'custom', r = state.cmpMode === 'range', y = state.cmpMode === 'year'; setAnalyticsRange({ from: c ? state.from : '', to: c ? state.to : '', cmpYear: y ? state.cmpYear : null, cmpFrom: r ? state.cmpFrom : '', cmpTo: r ? state.cmpTo : '' }); }
 
 // ---------------- مكوّن اختيار متعدد قابل للبحث ----------------
 function createMultiSelect(containerId, options, placeholder, onChange) {
@@ -385,10 +392,28 @@ function renderPeriodSub() {
   } else if (state.periodType === 'half') {
     box.innerHTML = `<select id="sub_h" multiple size="1" style="min-width:100px;">${[1, 2].map(h => `<option value="${h}">H${h}</option>`).join('')}</select>`;
     document.getElementById('sub_h').addEventListener('change', (e) => { state.halves = [...e.target.selectedOptions].map(o => Number(o.value)); refresh(); });
+  } else if (state.periodType === 'custom') {
+    box.innerHTML = `<input type="date" id="sub_from" value="${state.from}"> <input type="date" id="sub_to" value="${state.to}">`;
+    document.getElementById('sub_from').addEventListener('change', (e) => { state.from = e.target.value; refresh(); });
+    document.getElementById('sub_to').addEventListener('change', (e) => { state.to = e.target.value; refresh(); });
   } else {
     box.innerHTML = '';
   }
 }
+
+function renderCmpSub() {
+  const box = document.getElementById('cmpSub');
+  if (state.cmpMode === 'year') {
+    const ys = getSalesYears(); if (!state.cmpYear) state.cmpYear = ys.length > 1 ? ys[ys.length - 2] : state.year - 1;
+    box.innerHTML = `<select id="cmp_year">${[...new Set([...ys, state.cmpYear])].sort().map(y => `<option ${y == state.cmpYear ? 'selected' : ''}>${y}</option>`).join('')}</select>`;
+    document.getElementById('cmp_year').addEventListener('change', (e) => { state.cmpYear = Number(e.target.value); refresh(); });
+  } else if (state.cmpMode === 'range') {
+    box.innerHTML = `<input type="date" id="cmp_from" value="${state.cmpFrom}"> <input type="date" id="cmp_to" value="${state.cmpTo}">`;
+    document.getElementById('cmp_from').addEventListener('change', (e) => { state.cmpFrom = e.target.value; refresh(); });
+    document.getElementById('cmp_to').addEventListener('change', (e) => { state.cmpTo = e.target.value; refresh(); });
+  } else box.innerHTML = '';
+}
+document.getElementById('f_cmpMode').addEventListener('change', (e) => { state.cmpMode = e.target.value; renderCmpSub(); refresh(); });
 
 function gBadge(g) {
   if (g.pct === null) return `<span class="badge-g flat">${g.label}</span>`;
@@ -451,9 +476,9 @@ function barsChartSvg(rows) {
 
 function renderTimeAnalysis() {
   const rows = getSalesTimeBreakdown({ year: state.year, granularity: state.granularity, customerIds: state.customerIds, familyNames: state.familyNames, productIds: state.productIds });
-  document.getElementById('timeYearLabel').textContent = `${state.year} مقابل ${state.year - 1}`;
-  document.getElementById('thCurYear').textContent = state.year;
-  document.getElementById('thPrevYear').textContent = state.year - 1;
+  document.getElementById('timeYearLabel').textContent = `${curL()} مقابل ${cmpL()}`;
+  document.getElementById('thCurYear').textContent = curL();
+  document.getElementById('thPrevYear').textContent = cmpL();
   document.getElementById('timeChart').innerHTML = barsChartSvg(rows);
   document.getElementById('timeTable').innerHTML = rows.map(r => `
     <tr><td>${esc(r.label)}</td><td>${r.curValue.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${gBadge(r.growth)}</td></tr>`).join('');
@@ -471,10 +496,10 @@ function rankSort(rows, mode, valueKey, growthKey) {
 function applyTopN(rows, val) { return val === 'all' ? rows : rows.slice(0, Number(val)); }
 
 function renderCustomerTable() {
-  document.getElementById('custQtyPrevTh').textContent = `${state.year - 1} كمية`;
-  document.getElementById('custQtyCurTh').textContent = `${state.year} كمية`;
-  document.getElementById('custValPrevTh').textContent = `${state.year - 1} قيمة`;
-  document.getElementById('custValCurTh').textContent = `${state.year} قيمة`;
+  document.getElementById('custQtyPrevTh').textContent = `${cmpL()} كمية`;
+  document.getElementById('custQtyCurTh').textContent = `${curL()} كمية`;
+  document.getElementById('custValPrevTh').textContent = `${cmpL()} قيمة`;
+  document.getElementById('custValCurTh').textContent = `${curL()} قيمة`;
 
   let rows = getCustomerAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, familyNames: state.familyNames, productIds: state.productIds });
   const q = document.getElementById('custSearch').value.trim().toLowerCase();
@@ -493,10 +518,10 @@ function renderCustomerTable() {
 }
 
 function renderFamilyTable() {
-  document.getElementById('famQtyPrevTh').textContent = `${state.year - 1} كمية`;
-  document.getElementById('famQtyCurTh').textContent = `${state.year} كمية`;
-  document.getElementById('famValPrevTh').textContent = `${state.year - 1} قيمة`;
-  document.getElementById('famValCurTh').textContent = `${state.year} قيمة`;
+  document.getElementById('famQtyPrevTh').textContent = `${cmpL()} كمية`;
+  document.getElementById('famQtyCurTh').textContent = `${curL()} كمية`;
+  document.getElementById('famValPrevTh').textContent = `${cmpL()} قيمة`;
+  document.getElementById('famValCurTh').textContent = `${curL()} قيمة`;
 
   let rows = getFamilyAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: state.customerIds });
   rows = rankSort(rows, document.getElementById('famRank').value, 'curValue', 'valueGrowth');
@@ -507,10 +532,10 @@ function renderFamilyTable() {
 }
 
 function renderProductTable() {
-  document.getElementById('prodQtyPrevTh').textContent = `${state.year - 1} كمية`;
-  document.getElementById('prodQtyCurTh').textContent = `${state.year} كمية`;
-  document.getElementById('prodValPrevTh').textContent = `${state.year - 1} قيمة`;
-  document.getElementById('prodValCurTh').textContent = `${state.year} قيمة`;
+  document.getElementById('prodQtyPrevTh').textContent = `${cmpL()} كمية`;
+  document.getElementById('prodQtyCurTh').textContent = `${curL()} كمية`;
+  document.getElementById('prodValPrevTh').textContent = `${cmpL()} قيمة`;
+  document.getElementById('prodValCurTh').textContent = `${curL()} قيمة`;
 
   let rows = getProductAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: state.customerIds, familyNames: state.familyNames });
   const q = document.getElementById('prodSearch').value.trim().toLowerCase();
@@ -574,20 +599,20 @@ function renderDrill() {
     const rows = getSalesTimeBreakdown({ year: state.year, granularity: 'month', customerIds: [drill.customerId], productIds: [drill.productId] });
     body.innerHTML = `
       <div class="chart-wrap">${barsChartSvg(rows.map(r => ({ label: r.label, curValue: r.curValue, prevValue: r.prevValue })))}</div>
-      <table><thead><tr><th>الشهر</th><th>${state.year}</th><th>${state.year - 1}</th><th>النمو</th></tr></thead>
+      <table><thead><tr><th>الشهر</th><th>${curL()}</th><th>${cmpL()}</th><th>النمو</th></tr></thead>
       <tbody>${rows.map(r => `<tr><td>${esc(r.label)}</td><td>${r.curValue.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${gBadge(r.growth)}</td></tr>`).join('')}</tbody></table>`;
   } else if (drill.family) {
     // المستوى 2: منتجات هذه الفاميلي عند هذا العميل
     const rows = getProductAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: [drill.customerId], familyNames: [drill.family] })
       .filter(r => r.curValue > 0 || r.prevValue > 0).sort((a, b) => b.curValue - a.curValue);
-    body.innerHTML = `<table><thead><tr><th>المنتج</th><th>${state.year - 1} كمية</th><th>${state.year} كمية</th><th>${state.year - 1} قيمة</th><th>${state.year} قيمة</th><th>النمو</th></tr></thead>
+    body.innerHTML = `<table><thead><tr><th>المنتج</th><th>${cmpL()} كمية</th><th>${curL()} كمية</th><th>${cmpL()} قيمة</th><th>${curL()} قيمة</th><th>النمو</th></tr></thead>
       <tbody>${rows.map(r => `<tr class="drill-row" data-product="${r.productId}" style="cursor:pointer;"><td>${esc(r.name)}</td><td>${r.prevQty.toLocaleString()}</td><td>${r.curQty.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${r.curValue.toLocaleString()}</td><td>${gBadge(r.valueGrowth)}</td></tr>`).join('')}</tbody></table>`;
     body.querySelectorAll('.drill-row').forEach(tr => tr.addEventListener('click', () => { drill.productId = tr.dataset.product; renderDrill(); }));
   } else {
     // المستوى 1: فاميلي هذا العميل
     const rows = getFamilyAnalysisRows({ year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves, customerIds: [drill.customerId] })
       .filter(r => r.curValue > 0 || r.prevValue > 0).sort((a, b) => b.curValue - a.curValue);
-    body.innerHTML = `<table><thead><tr><th>الفاميلي</th><th>${state.year - 1} كمية</th><th>${state.year} كمية</th><th>${state.year - 1} قيمة</th><th>${state.year} قيمة</th><th>النمو</th></tr></thead>
+    body.innerHTML = `<table><thead><tr><th>الفاميلي</th><th>${cmpL()} كمية</th><th>${curL()} كمية</th><th>${cmpL()} قيمة</th><th>${curL()} قيمة</th><th>النمو</th></tr></thead>
       <tbody>${rows.map(r => `<tr class="drill-row" data-family="${esc(r.family)}" style="cursor:pointer;"><td>${esc(r.family)}</td><td>${r.prevQty.toLocaleString()}</td><td>${r.curQty.toLocaleString()}</td><td>${r.prevValue.toLocaleString()}</td><td>${r.curValue.toLocaleString()}</td><td>${gBadge(r.valueGrowth)}</td></tr>`).join('')}</tbody></table>`;
     body.querySelectorAll('.drill-row').forEach(tr => tr.addEventListener('click', () => { drill.family = tr.dataset.family; renderDrill(); }));
   }
@@ -676,6 +701,7 @@ document.getElementById('btnExportCsv').addEventListener('click', exportDetailCs
 document.getElementById('btnPrint').addEventListener('click', () => window.print());
 
 function refresh() {
+  applyRange();
   const o = getSalesOverview({
     year: state.year, periodType: state.periodType, months: state.months, quarters: state.quarters, halves: state.halves,
     customerIds: state.customerIds, familyNames: state.familyNames, productIds: state.productIds,
@@ -721,6 +747,7 @@ document.getElementById('btnResetFilters').addEventListener('click', () => {
   msCustomer.reset(); msFamily.reset(); msProduct.reset();
   state.periodType = 'ytd'; document.getElementById('f_periodType').value = 'ytd'; renderPeriodSub();
   state.compare = true; document.getElementById('f_compare').checked = true;
+  state.cmpMode = 'prev'; document.getElementById('f_cmpMode').value = 'prev'; renderCmpSub();
   refresh();
 });
 initFilters();

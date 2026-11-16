@@ -114,7 +114,7 @@ import {
   getAllCustomerBalances, getOverCreditLimitCustomers,
   getOrdersNeedingRenewal,
   getTopCustomers, getTopProducts, getMonthlyScorecard, getDaysSinceLastBackup,
-  getAgingReport, getDealerTargetsOverview, getAtpWatchlist, getDeferredOrders,
+  getAgingReport, getDealerTargetsOverview, getAtpWatchlist, getDeferredOrders, getSelloutAnalysis, getDealerSellThrough,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -197,6 +197,17 @@ function renderDealerBehind() {
   document.getElementById('dealerBehindCard').style.display = 'none';
   document.getElementById('dealerBehind').innerHTML = rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.ach.toLocaleString()}</td><td>${r.ytd.toLocaleString()}</td><td style="color:var(--danger);font-weight:700;">${(r.ach - r.ytd).toLocaleString()}</td><td>${r.req === null ? '-' : r.req.toLocaleString()}</td></tr>`).join('');
   if (rows.length) TODAY.push({ id: 'dealerBehindCard', icon: '🎯', label: 'تجار متأخرين عن Slab 1', count: rows.length, sev: 'sev-warn' });
+}
+
+function renderSellout() {
+  const to = new Date().toISOString().slice(0, 10), from = `${to.slice(0, 4)}-01-01`, r = getSelloutAnalysis({ from, to });
+  if (!r.byDealer.length) return;
+  const over = r.byDealer.filter(d => d.sellIn !== null && d.sellIn >= 5 && d.units < d.sellIn * 0.5);
+  const zero = [];
+  r.byDealer.filter(d => d.customerId).forEach(d => getDealerSellThrough(d.customerId, { from, to }).filter(x => x.est !== null && x.est <= 0 && x.sellOut > 0).forEach(x => zero.push({ dealer: d.name, ...x })));
+  const link = '<p class="muted"><a href="sellout.html">فتح سيل أوت ←</a></p>';
+  if (over.length) addPanel('p_so_over', '📤', 'توريد أكتر من البيع', over.length, 'sev-warn', `<h2>📤 توريد أكتر من البيع (سيل أوت أقل من 50% من سيل إن)</h2><ul>${over.map(d => `<li>${esc(d.name)} — سيل أوت ${d.units.toLocaleString()} مقابل سيل إن ${d.sellIn.toLocaleString()}</li>`).join('')}</ul>${link}`);
+  if (zero.length) addPanel('p_so_zero', '🛒', 'بيبيع ورصيده صفر', zero.length, 'sev-bad', `<h2>🛒 أصناف بتتباع ورصيدها التقديري صفر أو أقل (فرصة توريد، أو العدّ قديم)</h2><ul>${zero.slice(0, 30).map(x => `<li>${esc(x.dealer)} — <span dir="ltr">${esc(x.sku || x.name)}</span> (سيل أوت ${x.sellOut}، تقديري ${x.est})</li>`).join('')}</ul>${link}`);
 }
 
 function renderTiles() {
@@ -298,6 +309,7 @@ renderAlerts();
 renderAtp();
 renderDeferred();
 renderDealerBehind();
+renderSellout();
 renderTiles();
 renderTopLists();
 </script>
