@@ -8,27 +8,15 @@ nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:12px;b
 <link rel="stylesheet" href="theme.css"><script src="theme.js"></script></head><body>
 <nav><a href="index.html">🏠 الرئيسية</a><a href="inventory.html">📦 المخزون</a><a href="customers.html">💰 العملاء</a><a href="dealer-stock.html">🏬 مخزون التجار</a><a href="invoices.html">📄 الفواتير</a><a href="targets.html">🎯 الأهداف</a><a href="dealer-targets.html">🎯 تارجت التجار</a><a href="analytics.html">📊 تحليل البيانات</a><a href="explorer.html">🔎 المستكشف</a><a href="supply.html">🚚 الإمداد</a><a href="dealer360.html" class="active">🧑‍💼 تاجر 360</a><a href="manager.html">📈 لوحة المدير</a><a href="promos.html">🏷 العروض</a><a href="help.html">❓ الدليل</a></nav>
 <h1>🧑‍💼 تاجر 360°</h1>
-<div class="card"><div class="row"><select id="cust" style="min-width:240px"></select><select id="yr"></select><span class="muted">قارن بـ</span><select id="cy"></select><label class="muted"><input type="checkbox" id="net" checked> صافي بدون ضريبة (÷1.14)</label></div></div>
-<div class="card"><b>⬇ سحب مبيعات للشغل خارجي (Excel)</b><div class="row" style="margin-top:8px"><select id="xc" style="min-width:200px"></select><span class="muted">من</span><input type="date" id="xf"><span class="muted">إلى</span><input type="date" id="xt"><select id="xb"><option value="delivery">تاريخ التسليم (Delivered)</option><option value="order">تاريخ الطلب (كله)</option></select><button id="xgo" type="button" style="background:#1F5065;color:#fff;border:none;font-weight:600;cursor:pointer">⬇ سحب</button></div><div class="muted" id="xm">سطر لكل صنف (والمرتجع بالسالب) بكل التفاصيل: تاجر، فاتورة، فاميلي، كمية، قيمة شاملة وصافي.</div></div>
+<div class="card"><div class="row"><select id="cust" style="min-width:240px"></select><select id="yr"></select><label class="muted"><input type="checkbox" id="net" checked> صافي بدون ضريبة (÷1.14)</label></div></div>
 <div class="card" id="out"></div>
 <script type="module">
-import { esc, initStorage, getAll, STORAGE_KEYS, getSalesYears, getFactRows } from './erp-data-layer.js';
-import { buildXlsx } from './xlsx-writer.js';
+import { esc, initStorage, getAll, STORAGE_KEYS, getSalesYears } from './erp-data-layer.js';
 import { renderDealer360 } from './dealer360.js';
 initStorage();
 const $=i=>document.getElementById(i),cs=getAll(STORAGE_KEYS.CUSTOMERS).slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')),ys=getSalesYears();
 $('cust').innerHTML=cs.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.code?' ('+esc(c.code)+')':''}</option>`).join('');
-const now=new Date().getFullYear(),list=[...new Set([...ys,now,now-1])].sort();$('yr').innerHTML=list.map(y=>`<option>${y}</option>`).join('');$('yr').value=now;$('cy').innerHTML=list.map(y=>`<option>${y}</option>`).join('');$('cy').value=now-1;
-const go=()=>renderDealer360($('out'),$('cust').value,+$('yr').value,{vat:$('net').checked?14:0,cmpYear:+$('cy').value});
-['cust','yr','cy','net'].forEach(i=>$(i).addEventListener('change',go));go();
-$('xc').innerHTML='<option value="">كل التجار</option>'+cs.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');$('xc').value=$('cust').value;$('cust').addEventListener('change',()=>{$('xc').value=$('cust').value;});
-$('xf').value=`${now}-01-01`;$('xt').value=new Date().toISOString().slice(0,10);
-$('xgo').onclick=()=>{const id=$('xc').value,f=$('xf').value,t=$('xt').value,rd=v=>Math.round((v||0)*100)/100;
- const rows=getFactRows({basis:$('xb').value,vatRate:14}).filter(r=>(!id||r.customerId===id)&&(!f||r.date>=f)&&(!t||r.date<=t)).sort((a,b)=>a.date.localeCompare(b.date)||a.customer.localeCompare(b.customer,'ar'));
- if(!rows.length){alert('مفيش مبيعات في المدة دي');return;}
- const H=['التاريخ','الشهر','الربع','السنة','التاجر','كود التاجر','رقم الفاتورة','رقم الطلبية','القسم','الفاميلي','كود الصنف','الصنف','حالة الصنف','بيع/مرتجع','الكمية','سعر الوحدة بعد الخصم (شامل)','القيمة شاملة الضريبة بعد الخصم','القيمة صافي (÷1.14)'];
- const body=rows.map(r=>[r.date,r.date.slice(0,7),`${r.date.slice(0,4)}-Q${Math.ceil(+r.date.slice(5,7)/3)}`,+r.date.slice(0,4),r.customer,r.code,r.invoiceNo,r.orderNumber,r.division,r.family,r.sku,r.product.split(' — ').pop(),r.itemStatus,r.kind,r.qty,r.qty?rd(r.gross/r.qty):0,rd(r.gross),rd(r.net)]);
- const tot=['الإجمالي',...Array(13).fill(''),body.reduce((s,r)=>s+r[14],0),'',rd(body.reduce((s,r)=>s+r[16],0)),rd(body.reduce((s,r)=>s+r[17],0))],all=[H,...body,tot];
- const blob=buildXlsx(all,{sheetName:'مبيعات',moneyCols:[15,16,17],totalRow:all.length-1,widths:[12,10,10,7,24,14,12,14,12,16,16,44,12,9,8,16,18,16]}),a=document.createElement('a');
- a.href=URL.createObjectURL(blob);a.download=`مبيعات-${id?(cs.find(c=>c.id===id)||{}).name:'كل التجار'}-${f}-${t}.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);$('xm').textContent=`✅ اتسحب ${rows.length} سطر`;};
+const now=new Date().getFullYear(),list=[...new Set([...ys,now])].sort();$('yr').innerHTML=list.map(y=>`<option>${y}</option>`).join('');$('yr').value=now;
+const go=()=>renderDealer360($('out'),$('cust').value,+$('yr').value,{vat:$('net').checked?14:0});
+['cust','yr','net'].forEach(i=>$(i).addEventListener('change',go));go();
 </script></body></html>

@@ -32,7 +32,6 @@ const STORAGE_KEYS = {
   DEALER_STOCK: 'erp_dealer_stock',
   LEDGER_ADJUSTMENTS: 'erp_ledger_adjustments',
   DEALER_TARGETS: 'erp_dealer_targets', // تارجت التجار (Slabs + بوتاجاز)
-  SELLOUT: 'erp_sellout', // سيل أوت البروموترز (عمليات add/void من شيت البروموتر)
   SETTINGS: 'erp_settings',
   META: 'erp_meta', // آخر تحديث، رقم النسخة، إلخ
 };
@@ -1579,9 +1578,6 @@ function setSetting(name, value) {
 }
 
 /** أساس تاريخ تحليل المبيعات: 'delivery' (تاريخ التسليم، الافتراضي) أو 'order' (تاريخ الطلب) */
-/** نطاق مخصص للتحليل: from/to (مدة حالية مخصصة) + مقارنة بسنة تانية (cmpYear) أو بمدة مخصصة (cmpFrom/cmpTo) */
-let ANALYTICS_RANGE = {};
-function setAnalyticsRange(o) { ANALYTICS_RANGE = o || {}; }
 function getAnalyticsDateBasis() { return getSetting('analyticsDateBasis', 'delivery') === 'order' ? 'order' : 'delivery'; }
 function setAnalyticsDateBasis(v) { setSetting('analyticsDateBasis', v === 'order' ? 'order' : 'delivery'); }
 
@@ -1778,7 +1774,7 @@ function resolvePeriodRange(year, periodType, params, lines) {
     to = maxH === 1 ? `${year}-06-30` : `${year}-12-31`;
     label = hs.length === 1 ? `H${minH} ${year}` : `H1-H2 ${year}`;
   } else if (periodType === 'custom') {
-    from = params.from || ANALYTICS_RANGE.from || `${year}-01-01`; to = params.to || ANALYTICS_RANGE.to || `${year}-12-31`;
+    from = params.from || `${year}-01-01`; to = params.to || `${year}-12-31`;
     label = `${from} → ${to}`;
   } else {
     from = `${year}-01-01`; to = `${year}-12-31`; label = String(year);
@@ -1786,10 +1782,7 @@ function resolvePeriodRange(year, periodType, params, lines) {
 
   // نفس الفترة بالظبط سنة قبل كده
   const shiftYear = (dateStr, delta) => { const [y, m, d] = dateStr.split('-'); return `${Number(y) + delta}-${m}-${d}`; };
-  const o = ANALYTICS_RANGE;
-  if (o.cmpFrom && o.cmpTo) return { from, to, label, prevFrom: o.cmpFrom, prevTo: o.cmpTo, prevYear: `${o.cmpFrom} → ${o.cmpTo}` };
-  const delta = o.cmpYear ? Number(o.cmpYear) - Number(from.slice(0, 4)) : -1;
-  return { from, to, label, prevFrom: shiftYear(from, delta), prevTo: shiftYear(to, delta), prevYear: Number(from.slice(0, 4)) + delta };
+  return { from, to, label, prevFrom: shiftYear(from, -1), prevTo: shiftYear(to, -1), prevYear: year - 1 };
 }
 
 function inRange(dateStr, from, to) { return dateStr >= from && dateStr <= (to.length === 10 ? to + 'T23:59:59' : to); }
@@ -2018,7 +2011,6 @@ function getSalesTimeBreakdown({ year, granularity = 'month', customerIds = [], 
     (!productIds || !productIds.length || productIds.includes(l.productId))
   );
   const buckets = granularity === 'quarter' ? 4 : granularity === 'half' ? 2 : 12;
-  const cmpY = ANALYTICS_RANGE.cmpYear ? Number(ANALYTICS_RANGE.cmpYear) : ANALYTICS_RANGE.cmpFrom ? Number(ANALYTICS_RANGE.cmpFrom.slice(0, 4)) : year - 1;
   const keyFor = (l) => {
     const d = new Date(l.date);
     if (granularity === 'month') return d.getMonth() + 1;
@@ -2028,7 +2020,7 @@ function getSalesTimeBreakdown({ year, granularity = 'month', customerIds = [], 
   const rows = [];
   for (let b = 1; b <= buckets; b++) {
     const curB = filtered.filter((l) => new Date(l.date).getFullYear() === year && keyFor(l) === b);
-    const prevB = filtered.filter((l) => new Date(l.date).getFullYear() === cmpY && keyFor(l) === b);
+    const prevB = filtered.filter((l) => new Date(l.date).getFullYear() === year - 1 && keyFor(l) === b);
     const cur = aggregateLines(curB), prev = aggregateLines(prevB);
     const label = granularity === 'month' ? periodLabel(`${year}-${String(b).padStart(2, '0')}`, 'month').split(' ')[0] : granularity === 'quarter' ? `Q${b}` : `H${b}`;
     rows.push({ bucket: b, label, curValue: cur.value, prevValue: prev.value, curQty: cur.qty, prevQty: prev.qty, growth: growthOf(cur.value, prev.value) });
@@ -2861,12 +2853,11 @@ function getSupplyAnalysis({ from = '', to = '', vatRate = 14 } = {}) {
 // ------------------------------------------------------------
 // التاجر 360°: كل حاجة عن تاجر في سنة: مبيعات شهرية ومقارنة، فاميلي ومنتجات، White Space وفرصه، مخزونه، تارجته، والإمداد.
 // ------------------------------------------------------------
-function getDealer360(customerId, year, { vatRate = 14, cmpYear = null } = {}) {
+function getDealer360(customerId, year, { vatRate = 14 } = {}) {
   year = Number(year);
-  const cy = cmpYear ? Number(cmpYear) : year - 1;
   const all = getFactRows({ basis: 'delivery', vatRate }), mine = all.filter((r) => r.customerId === customerId);
   const yr = (rows, y) => rows.filter((r) => Number(r.date.slice(0, 4)) === y);
-  const cur = yr(mine, year), prev = yr(mine, cy), sum = (rows) => rows.reduce((s, r) => s + r.net, 0);
+  const cur = yr(mine, year), prev = yr(mine, year - 1), sum = (rows) => rows.reduce((s, r) => s + r.net, 0);
   const monthly = (rows) => Array.from({ length: 12 }, (_, m) => rows.filter((r) => Number(r.date.slice(5, 7)) === m + 1).reduce((s, r) => s + r.net, 0));
   const curM = monthly(cur), prevM = monthly(prev);
   const lastM = cur.length ? Math.max(...cur.map((r) => Number(r.date.slice(5, 7)))) : 0;
@@ -2881,7 +2872,7 @@ function getDealer360(customerId, year, { vatRate = 14, cmpYear = null } = {}) {
   const pr = getDealerTargetProgress(customerId, year);
   const sup = getSupplyAnalysis({ from: `${year}-01-01`, to: `${year}-12-31`, vatRate }).byDealer.find((x) => x.customerId === customerId) || null;
   return {
-    year, cmpYear: cy, vatRate, total: sum(cur), prevTotal: sum(prev), ytdCur, ytdPrev, lastMonth: lastM, curM, prevM, families, products,
+    year, vatRate, total: sum(cur), prevTotal: sum(prev), ytdCur, ytdPrev, lastMonth: lastM, curM, prevM, families, products,
     orders: orders.size, avgOrder: orders.size ? sum(cur) / orders.size : 0, lastDate, daysSince: lastDate ? Math.floor((Date.now() - new Date(lastDate).getTime()) / 86400000) : null,
     whiteSpace: { total: groups.length, bought: bought.map((g) => g.name), missing: missing.map((g) => ({ name: g.name, suggest: top3(g) })), need: Math.max(4 - bought.length, 0) },
     stock: { items: stock.length, units: stock.reduce((s, r) => s + r.qty, 0), lastDate: stock.reduce((m, r) => (!m || r.date > m ? r.date : m), null),
@@ -2889,110 +2880,6 @@ function getDealer360(customerId, year, { vatRate = 14, cmpYear = null } = {}) {
     target: { has: pr.hasTargets, achieved: pr.achieved.total, reached: pr.reachedCount, behindSlab1: pr.behindSlab1, focus: pr.focus.slab ? { name: pr.focus.slab.name, remaining: pr.focus.slab.remaining, perMonth: pr.focus.slab.requiredPerMonth, reached: pr.focus.slab.reached } : null },
     supply: sup,
   };
-}
-
-// ------------------------------------------------------------
-// سيل أوت البروموترز: عمليات add/void بتتلصق من شيت البروموتر. كل عملية بتتخزن مرة واحدة بالـ id (المكرر بيتخطى)،
-// والـ void بيلغي الـ add اللي ref بتاعه. cc = كود التاجر (customer.code)، code = كود الصنف (product.sku).
-// ------------------------------------------------------------
-function importSellout(text) {
-  const res = { added: 0, voids: 0, duplicate: 0, bad: 0, unknownDealers: [], unknownSkus: [], range: { from: null, to: null } };
-  const rows = parseRows(text);
-  const hi = rows.findIndex((r) => { const h = r.map((c) => c.trim().toLowerCase()); return h.includes('id') && h.includes('cc') && h.includes('code') && h.includes('qty'); });
-  const H = hi === -1 ? ['seq', 'id', 'date', 'promoter', 'cc', 'code', 'qty', 'type', 'ref'] : rows[hi].map((c) => c.trim().toLowerCase());
-  const g = (r, k) => { const i = H.indexOf(k); return i === -1 ? '' : String(r[i] ?? '').trim(); };
-  const list = getAll(STORAGE_KEYS.SELLOUT), have = new Set(list.map((o) => o.id)), now = new Date().toISOString();
-  const cBy = new Set(getAll(STORAGE_KEYS.CUSTOMERS).filter((c) => c.code).map((c) => normCode(c.code)));
-  const pBy = new Set(getAll(STORAGE_KEYS.PRODUCTS).filter((p) => p.sku).map((p) => p.sku.trim().toLowerCase()));
-  const uc = new Set(), us = new Set();
-  (hi === -1 ? rows : rows.slice(hi + 1)).forEach((r) => {
-    const id = g(r, 'id'), cc = g(r, 'cc'), code = g(r, 'code'), qty = toNum(g(r, 'qty')), type = (g(r, 'type') || 'add').toLowerCase(), date = normSapDate(g(r, 'date'), true);
-    if (!id || !cc || !code || !date || !(qty > 0) || !['add', 'void'].includes(type)) { if (r.some((c) => c)) res.bad++; return; }
-    if (have.has(id)) { res.duplicate++; return; }
-    have.add(id);
-    list.push({ id, createdAt: now, date, promoter: g(r, 'promoter'), cc, code, qty, type, ref: g(r, 'ref') });
-    if (type === 'void') { res.voids++; return; }
-    res.added++;
-    if (!cBy.has(normCode(cc))) uc.add(cc);
-    if (!pBy.has(code.toLowerCase())) us.add(code);
-    if (!res.range.from || date < res.range.from) res.range.from = date;
-    if (!res.range.to || date > res.range.to) res.range.to = date;
-  });
-  if ((res.added || res.voids) && !saveAll(STORAGE_KEYS.SELLOUT, list)) throw new Error('تعذّر الحفظ — المساحة ممتلئة على الأرجح. اعمل نسخة احتياطية وفرّغ مساحة.');
-  res.unknownDealers = [...uc]; res.unknownSkus = [...us];
-  return res;
-}
-/** سحب تلقائي من شيت البروموتر (Apps Script): بيجيب العمليات الجديدة بس بعد آخر seq متخزن (أو الكل لو full). الإعداد (رابط السكربت + مفتاح القراءة) متخزن محلي في الإعدادات بس */
-async function pullSellout({ full = false } = {}) {
-  const cfg = getSetting('selloutCfg', {}) || {};
-  if (!cfg.url || !cfg.rkey) return { ok: false, reason: 'not_configured' };
-  let after = full ? 0 : Number(getSetting('selloutSeq', 0)) || 0, ops = [];
-  try {
-    for (let i = 0; i < 50; i++) {
-      const r = await fetch(`${cfg.url}?key=${encodeURIComponent(cfg.rkey)}&after=${after}&limit=2000`);
-      const d = await r.json();
-      if (!d.ok) throw new Error(d.error || 'pull_failed');
-      const got = d.ops || [];
-      ops = ops.concat(got);
-      if (!d.more || !got.length) break;
-      after = got[got.length - 1].seq;
-    }
-  } catch (e) { return { ok: false, reason: String((e && e.message) || e) }; }
-  const p2 = (x) => String(x).padStart(2, '0');
-  const dstr = (v) => { const s = String(v ?? ''); if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; const d = new Date(v); return isNaN(d) ? s : `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`; };
-  const cl = (v) => String(v ?? '').replace(/[\t\r\n]+/g, ' ').trim();
-  const text = ['seq\tid\tdate\tpromoter\tcc\tcode\tqty\ttype\tref'].concat(ops.map((o) => [o.seq, o.id, dstr(o.date), o.promoter, o.cc, o.code, o.qty, o.type || 'add', o.ref].map(cl).join('\t'))).join('\n');
-  const res = ops.length ? importSellout(text) : { added: 0, voids: 0, duplicate: 0, bad: 0 };
-  const maxSeq = ops.reduce((m, o) => Math.max(m, Number(o.seq) || 0), full ? 0 : Number(getSetting('selloutSeq', 0)) || 0);
-  setSetting('selloutSeq', maxSeq);
-  setSetting('selloutLastPull', new Date().toISOString());
-  return { ok: true, fetched: ops.length, ...res };
-}
-/** عمليات البيع الفعلية: الـ add اللي ما اتلغاش بـ void */
-function getSelloutEffective() {
-  const all = getAll(STORAGE_KEYS.SELLOUT), voided = new Set(all.filter((o) => o.type === 'void').map((o) => o.ref));
-  return all.filter((o) => o.type === 'add' && !voided.has(o.id));
-}
-/** تحليل سيل أوت لفترة (بتاريخ تسجيل البروموتر). القيمة تقديرية بسعر اللست الحالي ÷ (1+ضريبة). sellIn = المسلَّم للتاجر (صافي المرتجعات) في نفس الفترة بالقطع */
-function getSelloutAnalysis({ from = '', to = '', vatRate = 14 } = {}) {
-  const div = 1 + (Number(vatRate) || 0) / 100;
-  const cBy = new Map(getAll(STORAGE_KEYS.CUSTOMERS).filter((c) => c.code).map((c) => [normCode(c.code), c]));
-  const pBy = new Map(getAll(STORAGE_KEYS.PRODUCTS).filter((p) => p.sku).map((p) => [p.sku.trim().toLowerCase(), p]));
-  const rows = getSelloutEffective().filter((o) => (!from || o.date >= from) && (!to || o.date <= to)).map((o) => {
-    const c = cBy.get(normCode(o.cc)), p = pBy.get(String(o.code).trim().toLowerCase());
-    return { ...o, customerId: c ? c.id : null, dealer: c ? c.name : `كود ${o.cc}`, name: p ? p.name : o.code, family: p ? productFamily(p.category) : 'بدون تصنيف', value: p ? (o.qty * p.basePrice) / div : 0, dealerKnown: !!c, skuKnown: !!p };
-  });
-  const inR = (d) => { const x = String(d).slice(0, 10); return (!from || x >= from) && (!to || x <= to); };
-  const sin = new Map();
-  getDeliveredLines().filter((l) => inR(l.date)).forEach((l) => sin.set(l.customerId, (sin.get(l.customerId) || 0) + l.qty));
-  getDeliveredReturns().filter((l) => inR(l.date)).forEach((l) => sin.set(l.customerId, (sin.get(l.customerId) || 0) - l.qty));
-  const grp = (key, init) => { const m = new Map(); rows.forEach((r) => { const k = key(r), x = m.get(k) || init(r); x.units += r.qty; x.value += r.value; m.set(k, x); }); return [...m.values()].sort((a, b) => b.units - a.units); };
-  const byDealer = grp((r) => r.customerId || r.cc, (r) => ({ customerId: r.customerId, name: r.dealer, cc: r.cc, units: 0, value: 0 }));
-  byDealer.forEach((d) => {
-    d.promoters = [...new Set(rows.filter((r) => (r.customerId || r.cc) === (d.customerId || d.cc)).map((r) => r.promoter).filter(Boolean))];
-    d.sellIn = d.customerId ? (sin.get(d.customerId) || 0) : null; d.diff = d.sellIn === null ? null : d.sellIn - d.units;
-  });
-  return {
-    rows, totals: { units: rows.reduce((s, r) => s + r.qty, 0), value: rows.reduce((s, r) => s + r.value, 0), dealers: byDealer.length, promoters: new Set(rows.map((r) => r.promoter)).size, skus: new Set(rows.map((r) => r.code)).size },
-    byDealer, byFamily: grp((r) => r.family, (r) => ({ family: r.family, units: 0, value: 0 })), bySku: grp((r) => r.code, (r) => ({ sku: r.code, name: r.name, units: 0, value: 0 })).slice(0, 15),
-    byDate: grp((r) => r.date, (r) => ({ date: r.date, units: 0, value: 0 })).sort((a, b) => a.date.localeCompare(b.date)),
-    unknown: { dealers: [...new Set(rows.filter((r) => !r.dealerKnown).map((r) => r.cc))], skus: [...new Set(rows.filter((r) => !r.skuKnown).map((r) => r.code))] },
-  };
-}
-/** لتاجر واحد وصنف صنف: سيل إن (مسلَّم) وسيل أوت في الفترة، وآخر عدّ مخزون عنده، والمخزون التقديري = آخر عدّ + المسلَّم بعده − سيل أوت بعده (من اليوم اللي بعد العدّ) */
-function getDealerSellThrough(customerId, { from = '', to = '' } = {}) {
-  const c = getAll(STORAGE_KEYS.CUSTOMERS).find((x) => x.id === customerId);
-  if (!c) return [];
-  const prods = getAll(STORAGE_KEYS.PRODUCTS), pMap = new Map(prods.map((p) => [p.id, p])), sku = new Map(prods.filter((p) => p.sku).map((p) => [p.sku.trim().toLowerCase(), p]));
-  const day = (d) => String(d).slice(0, 10), inR = (d) => (!from || day(d) >= from) && (!to || day(d) <= to);
-  const counts = new Map(getDealerStock(customerId).map((r) => [r.productId, r])), out = new Map();
-  const get = (pid) => { if (!out.has(pid)) out.set(pid, { sellIn: 0, sellOut: 0, inAfter: 0, outAfter: 0 }); return out.get(pid); };
-  const after = (pid, d) => { const k = counts.get(pid); return !!k && day(d) > day(k.date); };
-  [[getDeliveredLines(), 1], [getDeliveredReturns(), -1]].forEach(([arr, sg]) => arr.filter((l) => l.customerId === customerId).forEach((l) => { const x = get(l.productId); if (inR(l.date)) x.sellIn += sg * l.qty; if (after(l.productId, l.date)) x.inAfter += sg * l.qty; }));
-  getSelloutEffective().filter((o) => normCode(o.cc) === normCode(c.code)).forEach((o) => { const p = sku.get(String(o.code).trim().toLowerCase()); if (!p) return; const x = get(p.id); if (inR(o.date)) x.sellOut += o.qty; if (after(p.id, o.date)) x.outAfter += o.qty; });
-  counts.forEach((_, pid) => get(pid));
-  return [...out.entries()].map(([pid, x]) => { const p = pMap.get(pid), k = counts.get(pid); return { productId: pid, sku: p ? p.sku || '' : '', name: p ? p.name : '?', sellIn: x.sellIn, sellOut: x.sellOut, count: k ? k.qty : null, countDate: k ? day(k.date) : null, est: k ? k.qty + x.inAfter - x.outAfter : null }; })
-    .filter((r) => r.sellIn || r.sellOut || r.count !== null).sort((a, b) => b.sellOut - a.sellOut || b.sellIn - a.sellIn);
 }
 
 // ------------------------------------------------------------
@@ -3084,14 +2971,13 @@ export {
   // تارجت التجار + أساس تاريخ التحليل
   getStatusMismatchOrders, getDealerNotCounted,
   DEALER_SLAB_NAMES, distributeEvenly, distributeCount, getDealerTarget, saveDealerTarget, setDealerFocus, deleteDealerTarget, getDealerAchieved, getDealerTargetProgress, getDealerTargetsOverview,
-  getAnalyticsDateBasis, setAnalyticsDateBasis, setAnalyticsRange, productCodeAndDesc,
+  getAnalyticsDateBasis, setAnalyticsDateBasis, productCodeAndDesc,
   // المحقق لشهر قديم + مزامنة الساب
   getAchievedOnlyKpis, isPeriodApproximate, getKpiDetailsFor, previewSapSync, applySapSync,
   buildAtpMap, getAtpAgeDays, checkSaleAgainstAtp, getAtpWatchlist,
   splitOrder, markOrderDeferred, getDeferredOrders, releaseDeferredOrder, getOrderAtpAvailability,
   previewPromoPrices, applyPromoPrices,
   getFactRows, getSupplyAnalysis, getDealer360,
-  importSellout, pullSellout, getSelloutEffective, getSelloutAnalysis, getDealerSellThrough,
   getPromos, importPromos, deletePromo, getPromoPerformance,
   // نسخ احتياطي
   exportAllData, downloadBackup, importBackup, getDaysSinceLastBackup,

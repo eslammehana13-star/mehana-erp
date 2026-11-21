@@ -112,14 +112,7 @@
   </form>
 </div>
 
-<details class="card tools"><summary>🛠 أدوات متقدمة: استيراد تجار من إكسل</summary>
-<div class="card">
-  <h2>📥 استيراد تجار من إكسل</h2>
-  <p class="muted">انسخ من إكسل (سطر لكل تاجر) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← الهاتف ← الرصيد الافتتاحي ← حد الائتمان ← نسبة الخصم %. الاسم بس هو الإجباري، والمكرر (بالكود أو الاسم) بيتخطى، ولو التاجر موجود من غير كود بيتضاف له الكود.</p>
-  <textarea id="bulkCustomers" rows="5" placeholder="مثال:&#10;مؤسسة النور&#9;C1001&#9;موزع&#9;01000000000&#9;25000&#9;100000&#9;2&#10;معرض الأمل&#9;C1002&#9;تجزئة" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
-  <button type="button" id="btnBulkCustomers" style="margin-top:8px;">📥 استيراد</button>
-</div>
-</details>
+
 
 
 <details class="card tools"><summary>💵 تسجيل تحصيل / شيك (مخفي — لو احتجته)</summary>
@@ -433,15 +426,6 @@ async function copyToClipboard(text) {
   }
 }
 
-
-document.getElementById('btnBulkCustomers').addEventListener('click', () => {
-  const box = document.getElementById('bulkCustomers');
-  if (!box.value.trim()) { alert('الصق البيانات الأول'); return; }
-  const r = importCustomers(box.value);
-  box.value = '';
-  refresh();
-  alert(`تم إضافة ${r.added} تاجر جديد ✅` + (r.coded ? `\nوإضافة كود لـ ${r.coded} تاجر موجود` : '') + (r.skipped.length ? `\nاتخطّيت ${r.skipped.length} مكرر: ${r.skipped.slice(0, 15).join('، ')}` : ''));
-});
 
 refresh();
 </script>

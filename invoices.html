@@ -181,77 +181,6 @@
   <p class="muted" id="ordersEmpty" style="display:none">لا توجد فواتير بعد.</p>
 </div>
 
-<details class="card tools"><summary>🛠 أدوات متقدمة (استيراد وتصحيح — مرة واحدة)</summary>
-<div class="card">
-  <details>
-    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">📥 استيراد أوردرات تاريخية (مرة واحدة من ملف الساب)</summary>
-    <div style="margin-top:12px;">
-      <p class="muted">للاستيراد التاريخي بالتفصيل الكامل بس (مش للاستخدام اليومي). الأعمدة بالترتيب: Document Date (YYYY-MM-DD) ← Sales Document ← Sold-to Party ← Material ← Material Description ← Order Quantity ← Net Price ← Delivery Status. كل الأسطر اللي عندها نفس رقم الـ Sales Document بتتجمّع في طلبية واحدة، وبتتسجل مؤرشفة من غير ما تأثر على المخزون الحالي. أي رقم Sales Document موجود أصلاً بيتخطى تلقائياً (حماية من التكرار) إلا لو فعّلت "تحديث" تحت. <b>جديد:</b> تقدر تلصق تقرير الساب الكامل بعناوينه (الأعمدة بتتقرى بالاسم، والتواريخ شهر/يوم/سنة، وGoods Issue Date اختياري)، أو الصيغة المختصرة مع عمود تاسع اختياري لتاريخ التسليم الفعلي. الأصناف المسلَّمة اللي ليها تاريخ تسليم بتتحسب بيه بدل تاريخ الطلب.</p>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">
-          استورد لحد تاريخ (اختياري)
-          <input type="date" id="histCutoff" style="width:150px;">
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;">
-          ضريبة % (لتحويل Net Price لسعر شامل الضريبة)
-          <input type="number" id="histVat" value="14" min="0" max="100" step="0.5" style="width:70px;">
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="لو فعّلتها: أي رقم Sales Document موجود أصلاً من استيراد سابق هيتستبدل ببياناته الجديدة بدل ما يتخطى. الفواتير اللي دخّلتها إنت يدوياً مش بتتأثر أبداً حتى لو نفس الرقم بالصدفة.">
-          <input type="checkbox" id="histUpdateMode" style="flex:none; width:auto;"> تحديث السجلات الموجودة بدل تخطيها (للتصحيح لاحقاً)
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; font-size:13px;" title="لو التقرير من غير Goods Issue: الأصناف Completed بتاخد عمود Delivery Date كتاريخ تسليم تقريبي بدل تاريخ الطلب (لسه معلّمة تقريبي). بيشتغل مع تقرير الساب الكامل بعناوينه بس.">
-          <input type="checkbox" id="histUseDelDate" style="flex:none; width:auto;"> استخدم Delivery Date كتاريخ تسليم تقريبي للأصناف Completed
-        </label>
-      </div>
-      <textarea id="histOrders" rows="6" placeholder="الصق هنا بيانات الأوردرات التاريخية كاملة (مع صف العناوين)" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
-      <button type="button" id="btnImportHistorical" style="margin-top:8px;">📥 استيراد الأوردرات التاريخية</button>
-    </div>
-  </details>
-</div>
-
-<div class="card">
-  <details>
-    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">💰 استيراد كشف حساب تاريخي (رصيد افتتاحي + تحصيلات وحركات)</summary>
-    <div style="margin-top:12px;">
-      <p class="muted"><b>1) الرصيد الافتتاحي:</b> بيثبّت رصيد كل عميل في تاريخ معيّن (مرة واحدة). الأعمدة: كود العميل ← الرصيد الافتتاحي ← بتاريخ (YYYY-MM-DD).</p>
-      <textarea id="histOpening" rows="4" placeholder="الصق أرصدة افتتاحية" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
-      <button type="button" id="btnImportOpening" style="margin-top:8px;">📥 تثبيت الأرصدة الافتتاحية</button>
-
-      <p class="muted" style="margin-top:16px;"><b>2) حركات الكشف (تحصيل، إشعار دائن/مدين، ضرائب خصم... إلخ، عدا الفواتير):</b> الأعمدة: كود العميل ← التاريخ ← نوع الحركة ← المبلغ (موجب = يزوّد المديونية، سالب = يقلّلها) ← ملاحظة ← رقم المستند.</p>
-      <textarea id="histLedger" rows="5" placeholder="الصق حركات الكشف" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
-      <button type="button" id="btnImportLedger" style="margin-top:8px;">📥 استيراد حركات الكشف</button>
-
-      <p class="muted" style="margin-top:16px;"><b>3) تقرير المطابقة:</b> الصق أرقام جاهزة عندك (من الساب) عشان تتأكد إن رصيدنا مطابق. الأعمدة: كود العميل ← اسم العميل ← الرصيد المتوقع ← بتاريخ (YYYY-MM-DD).</p>
-      <textarea id="histReconcile" rows="5" placeholder="الصق أرقام المطابقة" style="width:100%; padding:8px; font-family:monospace; font-size:12px;"></textarea>
-      <button type="button" class="secondary" id="btnReconcile" style="margin-top:8px;">🔍 قارن الأرصدة</button>
-      <div id="reconcileResult" style="margin-top:12px;"></div>
-    </div>
-  </details>
-</div>
-
-<div class="card">
-  <details id="histMgrDetails">
-    <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🗑 مراجعة الأوردرات التاريخية وحذف اللي تختاره</summary>
-    <div style="margin-top:12px;">
-      <p class="muted">بيعرض الأوردرات المستوردة تاريخياً بس (فواتيرك اليدوية مش بتظهر هنا ومستحيل تتمسح من هنا). فلتر، حدد اللي عايزه، وامسح. بينزّل نسخة احتياطية قبل المسح.</p>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
-        <select id="hmCust" style="max-width:240px;"></select>
-        <select id="hmYear" style="max-width:110px;"></select>
-        <input type="text" id="hmSearch" placeholder="رقم الطلبية..." style="max-width:160px;">
-        <label style="display:flex; align-items:center; gap:4px; font-size:13px;"><input type="checkbox" id="hmAll" style="flex:none; width:auto;"> تحديد كل المعروض</label>
-        <button type="button" class="danger" id="hmDelete">🗑 حذف المحدد (0)</button>
-      </div>
-      <div id="hmSummary" class="muted"></div>
-      <div style="overflow-x:auto; max-height:420px; overflow-y:auto;"><table>
-        <thead><tr><th></th><th>رقم الطلبية</th><th>العميل</th><th>التاريخ</th><th>أصناف</th><th>الإجمالي</th><th>الحالة</th></tr></thead>
-        <tbody id="hmBody"></tbody>
-      </table></div>
-    </div>
-  </details>
-</div>
-
-</details>
-
 <div class="card">
   <details id="syncDetails">
     <summary style="cursor:pointer; font-weight:700; color:var(--primary-dark);">🔄 مزامنة مع تقرير الساب (مراجعة الأوردرات)</summary>
@@ -1115,68 +1044,6 @@ function copyOrderForSap(orderId) {
   copyToClipboard(lines.join('\n'));
 }
 
-document.getElementById('btnImportHistorical').addEventListener('click', () => {
-  const box = document.getElementById('histOrders');
-  if (!box.value.trim()) { alert('الصق بيانات الأوردرات الأول'); return; }
-  const cutoff = document.getElementById('histCutoff').value || null;
-  const vatRate = Number(document.getElementById('histVat').value) || 0;
-  const updateMode = document.getElementById('histUpdateMode').checked;
-  if (!confirm(updateMode ? 'تأكيد التحديث؟ أي طلبية مستوردة سابقاً بنفس رقم الـ Sales Document هتتستبدل ببياناتها الجديدة.' : 'تأكيد استيراد الأوردرات التاريخية؟ العملية دي بتتجمع (مش بتلغي القديم) ومينفعش تتراجع فيها غير بنسخة احتياطية.')) return;
-  let r;
-  try { r = importHistoricalOrders(box.value, { cutoffDate: cutoff, vatRate, updateMode, useDeliveryDate: document.getElementById('histUseDelDate').checked }); } catch (err) { alert('⚠ ' + err.message); return; }
-  refresh();
-  let msg = `تم استيراد ${r.imported} طلبية جديدة${r.updated ? ` وتحديث ${r.updated} طلبية موجودة` : ''} ✅ (إجمالي ${r.totalValue.toLocaleString()} ج.م شامل الضريبة)`;
-  if (r.skippedDuplicate) msg += `\nتم تخطي ${r.skippedDuplicate} طلبية موجودة أصلاً (${updateMode ? 'فاتورة يدوية بنفس الرقم' : 'فعّل "تحديث" لو عايز تصححها'})`;
-  if (r.range.from) msg += `\nنطاق تواريخ الطلبيات: ${r.range.from} ← ${r.range.to} (اتأكد إنه منطقي) — أصناف مسلَّمة بتاريخ تسليم فعلي: ${r.withDeliveryDate}`;
-  if (r.skippedCustomerNotFound.length) msg += `\n⚠ ${r.skippedCustomerNotFound.length} طلبية اتخطّت لعدم وجود كود العميل: ${r.skippedCustomerNotFound.slice(0, 10).join('، ')}`;
-  if (r.autoCreatedProducts.length) msg += `\nℹ️ ${r.autoCreatedProducts.length} صنف اتسجل تلقائياً لأنه مش في الكتالوج الحالي (راجعهم من صفحة المخزون، تصنيف "مؤرشف"): ${r.autoCreatedProducts.slice(0, 10).join('، ')}`;
-  alert(msg);
-  box.value = '';
-});
-
-document.getElementById('btnImportOpening').addEventListener('click', () => {
-  const box = document.getElementById('histOpening');
-  if (!box.value.trim()) { alert('الصق الأرصدة الأول'); return; }
-  if (!confirm('تأكيد تثبيت الأرصدة الافتتاحية؟ العملية دي بتستبدل أي رصيد افتتاحي موجود فعلاً لنفس العملاء.')) return;
-  const r = importOpeningBalances(box.value);
-  refresh();
-  let msg = `تم تثبيت الرصيد الافتتاحي لـ ${r.updated} عميل ✅`;
-  if (r.notFound.length) msg += `\n⚠ ${r.notFound.length} كود مش موجود: ${r.notFound.slice(0, 10).join('، ')}`;
-  alert(msg);
-  box.value = '';
-});
-
-document.getElementById('btnImportLedger').addEventListener('click', () => {
-  const box = document.getElementById('histLedger');
-  if (!box.value.trim()) { alert('الصق حركات الكشف الأول'); return; }
-  const r = importLedgerAdjustments(box.value);
-  refresh();
-  let msg = `تم استيراد ${r.imported} حركة ✅`;
-  if (r.skippedDuplicate) msg += `\nتم تخطي ${r.skippedDuplicate} حركة مكررة`;
-  if (r.skippedCustomerNotFound.length) msg += `\n⚠ ${r.skippedCustomerNotFound.length} حركة اتخطّت لعدم وجود كود العميل: ${r.skippedCustomerNotFound.slice(0, 10).join('، ')}`;
-  alert(msg);
-  box.value = '';
-});
-
-document.getElementById('btnReconcile').addEventListener('click', () => {
-  const box = document.getElementById('histReconcile');
-  if (!box.value.trim()) { alert('الصق أرقام المطابقة الأول'); return; }
-  const rows = getReconciliationReport(box.value);
-  const resultBox = document.getElementById('reconcileResult');
-  const matched = rows.filter(r => r.found && Math.abs(r.diff) < 1);
-  const mismatched = rows.filter(r => r.found && Math.abs(r.diff) >= 1);
-  const notFound = rows.filter(r => !r.found);
-  resultBox.innerHTML = `
-    <p><b>مطابق تماماً:</b> ${matched.length} | <b>فيه فرق:</b> ${mismatched.length} | <b>كود مش موجود:</b> ${notFound.length}</p>
-    ${mismatched.length ? `<table><thead><tr><th>العميل</th><th>الكود</th><th>المتوقع</th><th>عندنا</th><th>الفرق</th></tr></thead><tbody>
-      ${mismatched.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.code)}</td><td>${r.expected.toLocaleString()}</td><td>${r.actual.toLocaleString()}</td><td style="color:var(--danger);font-weight:700;">${r.diff.toLocaleString()}</td></tr>`).join('')}
-    </tbody></table>` : '<p class="muted">✅ كل الأرصدة اللي اتقارنت مطابقة.</p>'}
-    ${notFound.length ? `<p class="muted">أكواد مش موجودة: ${notFound.map(r => r.code).join('، ')}</p>` : ''}
-  `;
-});
-
-
-
 // ---------------- مزامنة مع تقرير الساب: عميل ← أوردر ← أصناف ----------------
 const SAP_STATE_TXT = { delivered: 'Completed (مسلَّم)', partial: 'Partially Delivered', pending: 'Not Delivered' };
 const LOCAL_STATE_TXT = { unconfirmed: 'Unconfirmed', confirmed: 'Confirmed', release: 'Release', delivered: 'Delivered', mixed: 'مختلطة' };
@@ -1332,53 +1199,6 @@ function runSyncCompare() {
 document.getElementById('btnSyncCompare').addEventListener('click', runSyncCompare);
 
 
-// ---------------- مراجعة وحذف الأوردرات التاريخية ----------------
-const hmSel = new Set();
-function hmOrders() { return getAll(STORAGE_KEYS.SALES_ORDERS).filter(o => o.historicalImport && !o.voided); }
-function hmInit() {
-  const orders = hmOrders(), cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map(c => [c.id, c]));
-  const custs = [...new Set(orders.map(o => o.customerId))].sort((a, b) => ((cMap.get(a) || {}).name || '').localeCompare((cMap.get(b) || {}).name || '', 'ar'));
-  const years = [...new Set(orders.map(o => String(o.date).slice(0, 4)))].sort();
-  const pc = document.getElementById('hmCust').value, py = document.getElementById('hmYear').value;
-  document.getElementById('hmCust').innerHTML = '<option value="">كل التجار</option>' + custs.map(id => `<option value="${esc(id)}">${esc((cMap.get(id) || {}).name || '(محذوف)')}</option>`).join('');
-  document.getElementById('hmYear').innerHTML = '<option value="">كل السنين</option>' + years.map(y => `<option>${y}</option>`).join('');
-  if (custs.includes(pc)) document.getElementById('hmCust').value = pc;
-  if (years.includes(py)) document.getElementById('hmYear').value = py;
-  hmRender();
-}
-function hmFiltered() {
-  const c = document.getElementById('hmCust').value, y = document.getElementById('hmYear').value, q = document.getElementById('hmSearch').value.trim().toLowerCase();
-  return hmOrders().filter(o => (!c || o.customerId === c) && (!y || String(o.date).startsWith(y)) && (!q || String(o.orderNumber || '').toLowerCase().includes(q)))
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
-}
-function hmRender() {
-  const list = hmFiltered(), shown = list.slice(0, 300), cMap = new Map(getAll(STORAGE_KEYS.CUSTOMERS).map(c => [c.id, c.name]));
-  const total = list.reduce((s, o) => s + o.total, 0);
-  document.getElementById('hmSummary').textContent = `${list.length} أوردر — إجمالي ${Math.round(total).toLocaleString()} ج.م شامل الضريبة${list.length > 300 ? ' (معروض أول 300، ضيّق الفلتر)' : ''}`;
-  document.getElementById('hmBody').innerHTML = shown.map(o => `<tr><td><input type="checkbox" class="hm-chk" data-id="${o.id}" ${hmSel.has(o.id) ? 'checked' : ''} style="width:auto; min-width:0;"></td>
-    <td dir="ltr">${esc(o.orderNumber || '')}</td><td>${esc(cMap.get(o.customerId) || '(محذوف)')}</td><td>${String(o.date).slice(0, 10)}</td><td>${o.items.length}</td><td>${Math.round(o.total).toLocaleString()}</td><td>${STATUS_META[o.status || 'unconfirmed']}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">مفيش أوردرات تاريخية مطابقة.</td></tr>';
-  document.querySelectorAll('.hm-chk').forEach(c => c.addEventListener('change', () => { if (c.checked) hmSel.add(c.dataset.id); else hmSel.delete(c.dataset.id); hmCount(); }));
-  hmCount();
-}
-function hmCount() { document.getElementById('hmDelete').textContent = `🗑 حذف المحدد (${hmSel.size})`; }
-['hmCust', 'hmYear'].forEach(id => document.getElementById(id).addEventListener('change', hmRender));
-document.getElementById('hmSearch').addEventListener('input', hmRender);
-document.getElementById('hmAll').addEventListener('change', (e) => {
-  hmFiltered().slice(0, 300).forEach(o => { if (e.target.checked) hmSel.add(o.id); else hmSel.delete(o.id); });
-  hmRender();
-});
-document.getElementById('hmDelete').addEventListener('click', () => {
-  const ids = [...hmSel].filter(id => hmOrders().some(o => o.id === id));
-  if (!ids.length) { alert('حدد أوردر واحد على الأقل'); return; }
-  if (!confirm(`هتمسح ${ids.length} أوردر تاريخي نهائياً (هيتشالوا من رصيد العميل والتحليل والتارجت). هننزّل نسخة احتياطية الأول. تكمل؟`)) return;
-  downloadBackup();
-  ids.forEach(id => deleteRecord(STORAGE_KEYS.SALES_ORDERS, id));
-  hmSel.clear();
-  alert(`تم مسح ${ids.length} أوردر ✅`);
-  hmInit();
-  refresh();
-});
-document.getElementById('histMgrDetails').addEventListener('toggle', (e) => { if (e.target.open) hmInit(); });
 
 addLineItemRow();
 refresh();
