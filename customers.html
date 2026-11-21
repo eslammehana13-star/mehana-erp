@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>حسابات العملاء والخزينة</title>
+<style>
+  :root {
+    --bg: #EEF1F0; --card: #ffffff; --text: #16212B; --muted: #5B6572;
+    --primary: #1F5065; --primary-dark: #123244; --danger: #A6402F; --ok: #1F7A4D;
+    --border: #DCE1DF;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Dubai', 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; }
+  h1 { font-size: 21px; margin: 0 0 4px; color: var(--primary-dark); font-weight: 700; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(18,50,68,0.06); overflow-x: auto; }
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .kpi { background: var(--card); border-radius: 10px; padding: 12px 16px; flex: 1; min-width: 140px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .kpi .label { font-size: 12px; color: var(--muted); }
+  .kpi .value { font-size: 20px; font-weight: 700; color: var(--primary-dark); }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input, select { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; flex: 1; min-width: 110px; background: #fff; color: var(--text); transition: border-color .15s ease; }
+  input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,80,101,0.12); }
+  button { padding: 9px 16px; border: none; border-radius: 8px; background: var(--primary); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, transform .1s ease; }
+  button:hover { background: var(--primary-dark); }
+  button:active { transform: scale(0.98); }
+  button:focus-visible { outline: 2px solid var(--warn-border, #B8862E); outline-offset: 2px; }
+  button.secondary { background: var(--surface-alt, #E7EAE7); color: var(--text); border: 1px solid var(--border); }
+  button.danger { background: var(--danger); }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { padding: 8px; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; border-bottom: 2px solid var(--border); }
+  .debt { color: var(--danger); font-weight: 700; }
+  .credit { color: var(--ok); font-weight: 700; }
+  .alert { background: #F5EBD6; border: 1px solid #B8862E; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .alert strong { color: #7A5A19; }
+  .alert ul { margin: 6px 0 0; padding-inline-start: 18px; }
+  .countdown { padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; }
+  .countdown.ok { background: #E1EFE3; color: var(--ok); }
+  .countdown.warn { background: #F5EBD6; color: #7A5A19; }
+  .countdown.expired { background: #F2E1DC; color: var(--danger); }
+  .order-number-cell { display: flex; gap: 4px; }
+  .order-number-cell input { width: 90px; min-width: 0; }
+  .order-number-cell button { padding: 4px 8px; font-size: 12px; }
+  .status-select { font-weight: 700; border: none; border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+  .status-select.unconfirmed { background: #F2E1DC; color: #A6402F; }
+  .status-select.confirmed { background: #E2ECEC; color: #1F5065; }
+  .status-select.release { background: #EBE3EC; color: #6B4C7A; }
+  .status-select.delivered { background: #E1EFE3; color: #1F7A4D; }
+  .items-panel { background: #f9fafb; padding: 10px; border-radius: 8px; margin: 0; }
+  .items-panel table { min-width: 0; margin: 0; }
+  .toggle-items { background: none; border: none; color: var(--primary); cursor: pointer; font-size: 12px; text-decoration: underline; padding: 0; }
+  .row-actions { display: flex; gap: 6px; }
+  .row-actions button { padding: 4px 8px; font-size: 12px; }
+  .line-items { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+  .line-item { display: flex; gap: 6px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  #statementBox { display: none; }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 2px solid var(--warn-border, #B8862E); }
+  nav a { text-decoration: none; background: #fff; color: var(--primary-dark); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); transition: background .15s ease, color .15s ease; }
+  nav a.active { background: var(--primary); color: #fff; }
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<nav>
+  <a href="index.html">🏠 الرئيسية</a>
+  <a href="inventory.html">📦 المخزون</a>
+  <a href="customers.html" class="active">💰 العملاء</a>
+  <a href="dealer-stock.html">🏬 مخزون التجار</a>
+  <a href="invoices.html">📄 الفواتير</a>
+  <a href="targets.html">🎯 الأهداف</a>
+  <a href="dealer-targets.html">🎯 تارجت التجار</a>
+  <a href="analytics.html">📊 تحليل البيانات</a>
+  <a href="explorer.html">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
+</nav>
+
+
+<h1>💰 حسابات العملاء والخزينة</h1>
+
+
+<div id="creditAlertBox"></div>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">إجمالي مديونية العملاء</div><div class="value" id="kpiDebt">0</div></div>
+  <div class="kpi"><div class="label">عدد العملاء</div><div class="value" id="kpiCount">0</div></div>
+</div>
+
+<div class="card">
+  <h2>إضافة عميل جديد</h2>
+  <form id="customerForm">
+    <input type="text" id="c_name" placeholder="اسم العميل" required>
+    <input type="text" id="c_code" placeholder="كود العميل (الساب)">
+    <input type="text" id="c_category" placeholder="التصنيف (موزع/تاجر تجزئة..)" value="عام">
+    <input type="text" id="c_phone" placeholder="رقم الهاتف">
+    <input type="number" id="c_opening" placeholder="الرصيد الافتتاحي" value="0">
+    <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); min-width:170px;">
+      تاريخ الرصيد الافتتاحي
+      <input type="date" id="c_openingDate" title="سيبها فاضية لو الرصيد الافتتاحي حديث">
+    </label>
+    <input type="number" id="c_limit" placeholder="حد الائتمان" value="0" min="0">
+    <input type="number" id="c_discount" placeholder="نسبة الخصم % (بتتطبق تلقائياً على فواتيره)" value="0" min="0" max="100" step="0.5">
+    <button type="submit">إضافة</button>
+  </form>
+</div>
+
+<details class="card tools"><summary>🛠 أدوات متقدمة: استيراد تجار من إكسل</summary>
+<div class="card">
+  <h2>📥 استيراد تجار من إكسل</h2>
+  <p class="muted">انسخ من إكسل (سطر لكل تاجر) والصق. الأعمدة بالترتيب: الاسم ← الكود ← التصنيف ← الهاتف ← الرصيد الافتتاحي ← حد الائتمان ← نسبة الخصم %. الاسم بس هو الإجباري، والمكرر (بالكود أو الاسم) بيتخطى، ولو التاجر موجود من غير كود بيتضاف له الكود.</p>
+  <textarea id="bulkCustomers" rows="5" placeholder="مثال:&#10;مؤسسة النور&#9;C1001&#9;موزع&#9;01000000000&#9;25000&#9;100000&#9;2&#10;معرض الأمل&#9;C1002&#9;تجزئة" style="width:100%; padding:8px; font-family:monospace; font-size:13px;"></textarea>
+  <button type="button" id="btnBulkCustomers" style="margin-top:8px;">📥 استيراد</button>
+</div>
+</details>
+
+
+<details class="card tools"><summary>💵 تسجيل تحصيل / شيك (مخفي — لو احتجته)</summary>
+<div class="card">
+  <h2>تسجيل تحصيل نقدي (سند قبض)</h2>
+  <form id="receiptForm">
+    <select id="r_customer" required></select>
+    <input type="number" id="r_amount" placeholder="المبلغ" min="1" required>
+    <select id="r_method">
+      <option value="cash">نقدي</option>
+      <option value="bank_transfer">تحويل بنكي</option>
+      <option value="check">شيك</option>
+      <option value="visa">فيزا / بطاقة</option>
+    </select>
+    <div id="checkFields" style="display:none; gap:8px; flex-wrap:wrap; width:100%;">
+      <input type="text" id="ck_number" placeholder="رقم الشيك">
+      <input type="text" id="ck_bank" placeholder="اسم البنك">
+      <input type="date" id="ck_due" placeholder="تاريخ الاستحقاق">
+      <select id="ck_deliveryType">
+        <option value="office">تسليم بالمكتب</option>
+        <option value="bank">إيداع بالبنك</option>
+      </select>
+      <input type="date" id="ck_deliveryDate" placeholder="موعد التسليم/الإيداع">
+    </div>
+    <button type="submit">تسجيل التحصيل</button>
+  </form>
+</div>
+</details>
+
+<div class="card">
+  <div class="toolbar">
+    <h2>العملاء وأرصدتهم</h2>
+    <div>
+    </div>
+  </div>
+  <input type="text" id="customerSearch" placeholder="🔍 دور باسم أو كود عميل..." style="width:100%; margin-bottom:8px;">
+  <table>
+    <thead>
+      <tr><th>العميل</th><th>الكود</th><th>التصنيف</th><th>حد الائتمان</th><th>نسبة الخصم %</th><th>الرصيد الحالي</th><th>إجراءات</th></tr>
+    </thead>
+    <tbody id="customersTable"></tbody>
+  </table>
+  <p class="muted" id="emptyState" style="display:none">لا يوجد عملاء بعد.</p>
+</div>
+
+<details class="card tools"><summary>📅 تقادم الديون (مخفي — لو احتجته)</summary>
+<div class="card">
+  <h2>📅 تقادم الديون (Aging)</h2>
+  <table>
+    <thead><tr><th>العميل</th><th>0-30 يوم</th><th>31-60 يوم</th><th>61-90 يوم</th><th>90+ يوم</th><th>الإجمالي القائم</th></tr></thead>
+    <tbody id="agingTable"></tbody>
+  </table>
+  <p class="muted" id="agingEmpty" style="display:none">لا توجد مديونيات قائمة حالياً.</p>
+</div>
+</details>
+
+
+<div class="card" id="statementBox">
+  <div class="toolbar">
+    <h2 id="statementTitle">كشف حساب</h2>
+    <button class="secondary" id="closeStatement">إغلاق</button>
+  </div>
+  <div id="statementMix" class="muted" style="margin-bottom:8px;"></div>
+  <table>
+    <thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+    <tbody id="statementTable"></tbody>
+  </table>
+</div>
+
+<script type="module">
+import {
+  esc, importCustomers,
+  initStorage, addCustomer, getAll, STORAGE_KEYS,
+  getCustomerBalance, getAllCustomerBalances, getCustomerStatement, getCustomerCashCreditMix, recordReceipt,
+  getOverCreditLimitCustomers, getAgingReport,
+  deleteRecord, updateRecord, } from './erp-data-layer.js';
+
+initStorage();
+
+function refresh() {
+  const sel = ['r_customer'].map(id => [id, document.getElementById(id).value]);
+  refreshCore();
+  sel.forEach(([id, v]) => { const el = document.getElementById(id); if (v && Array.from(el.options).some(o => o.value === v)) el.value = v; });
+}
+function refreshCore() {
+  renderKpis();
+  renderCustomersTable();
+  renderCustomerSelects();
+  renderCreditAlerts();
+  renderAging();
+}
+
+function renderCreditAlerts() {
+  const over = getOverCreditLimitCustomers();
+  const box = document.getElementById('creditAlertBox');
+  if (over.length === 0) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div class="alert">
+      <strong>🚫 عملاء تعدّوا حد الائتمان (${over.length}):</strong>
+      <ul>${over.map(c => `<li>${esc(c.name)} — الرصيد: ${c.balance.toLocaleString()} (الحد: ${c.creditLimit.toLocaleString()})</li>`).join('')}</ul>
+    </div>`;
+}
+
+function renderKpis() {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  document.getElementById('kpiCount').textContent = customers.length;
+  const balances = getAllCustomerBalances();
+  const totalDebt = customers.reduce((sum, c) => sum + Math.max(balances[c.id] || 0, 0), 0);
+  document.getElementById('kpiDebt').textContent = totalDebt.toLocaleString();
+}
+
+let editingCustomerId = null;
+
+function renderCustomersTable() {
+  const query = (document.getElementById('customerSearch').value || '').trim().toLowerCase();
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS).filter(c => !query || (c.name + " " + (c.code || "")).toLowerCase().includes(query));
+  const balances = getAllCustomerBalances();
+  const tbody = document.getElementById('customersTable');
+  document.getElementById('emptyState').style.display = customers.length ? 'none' : 'block';
+  tbody.innerHTML = customers.map(c => {
+    if (editingCustomerId === c.id) {
+      return `
+      <tr>
+        <td><input type="text" class="e-name" value="${esc(c.name)}"></td>
+        <td><input type="text" class="e-code" value="${esc(c.code || "")}" style="width:90px;"></td>
+        <td><input type="text" class="e-category" value="${esc(c.category)}"></td>
+        <td><input type="number" class="e-limit" value="${c.creditLimit}" style="width:80px;"></td>
+        <td><input type="number" class="e-discount" value="${c.discountRate || 0}" style="width:60px;"></td>
+        <td>
+          <input type="number" class="e-opening" value="${c.openingBalance || 0}" style="width:90px;" title="الرصيد الافتتاحي">
+          <input type="date" class="e-openingDate" value="${c.openingBalanceDate ? c.openingBalanceDate.slice(0,10) : ''}" style="width:130px;" title="تاريخ الرصيد الافتتاحي">
+        </td>
+        <td class="row-actions">
+          <button data-save-cust="${c.id}">حفظ</button>
+          <button class="secondary" data-cancel-cust="1">إلغاء</button>
+        </td>
+      </tr>`;
+    }
+    const balance = balances[c.id] || 0;
+    const cls = balance > 0 ? 'debt' : (balance < 0 ? 'credit' : '');
+    return `
+      <tr>
+        <td>${esc(c.name)}</td>
+        <td>${esc(c.code || "-")}</td>
+        <td>${esc(c.category)}</td>
+        <td>${c.creditLimit.toLocaleString()}</td>
+        <td>${c.discountRate || 0}%</td>
+        <td class="${cls}">${balance.toLocaleString()}</td>
+        <td class="row-actions">
+          <button class="secondary" data-stmt="${c.id}">كشف حساب</button>
+          ${balance > 0 ? `<button class="secondary" data-remind="${c.id}">تذكير واتساب</button>` : ''}
+          <button class="secondary" data-edit-cust="${c.id}">تعديل</button>
+          <button class="danger" data-del="${c.id}">حذف</button>
+        </td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('[data-edit-cust]').forEach(btn => {
+    btn.addEventListener('click', () => { editingCustomerId = btn.dataset.editCust; renderCustomersTable(); });
+  });
+  tbody.querySelectorAll('[data-cancel-cust]').forEach(btn => {
+    btn.addEventListener('click', () => { editingCustomerId = null; renderCustomersTable(); });
+  });
+  tbody.querySelectorAll('[data-save-cust]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const row = btn.closest('tr');
+      updateRecord(STORAGE_KEYS.CUSTOMERS, btn.dataset.saveCust, {
+        name: row.querySelector('.e-name').value.trim(),
+        code: row.querySelector('.e-code').value.trim(),
+        category: row.querySelector('.e-category').value.trim(),
+        creditLimit: Number(row.querySelector('.e-limit').value) || 0,
+        discountRate: Number(row.querySelector('.e-discount').value) || 0,
+        openingBalance: Number(row.querySelector('.e-opening').value) || 0,
+        openingBalanceDate: row.querySelector('.e-openingDate').value || null,
+      });
+      editingCustomerId = null;
+      refresh();
+    });
+  });
+  tbody.querySelectorAll('[data-stmt]').forEach(btn => {
+    btn.addEventListener('click', () => showStatement(btn.dataset.stmt));
+  });
+  tbody.querySelectorAll('[data-remind]').forEach(btn => {
+    btn.addEventListener('click', () => sendCollectionReminder(btn.dataset.remind));
+  });
+  tbody.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cid = btn.dataset.del;
+      if (getAll(STORAGE_KEYS.SALES_ORDERS).some(o => o.customerId === cid) || getAll(STORAGE_KEYS.RECEIPTS).some(r => r.customerId === cid)) { alert('مينفعش تحذف عميل عليه فواتير أو تحصيلات — سجلاته لازم تفضل في الحسابات.'); return; }
+      if (confirm('تأكيد حذف العميل؟')) {
+        deleteRecord(STORAGE_KEYS.CUSTOMERS, btn.dataset.del);
+        refresh();
+      }
+    });
+  });
+}
+
+document.getElementById('customerSearch').addEventListener('input', renderCustomersTable);
+
+function sendCollectionReminder(customerId) {
+  const customer = getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === customerId);
+  const balance = getCustomerBalance(customerId);
+  const text = `السلام عليكم ${customer?.name || ''}،\nتذكير بسيط إن عليكم مبلغ مستحق قدره ${balance.toLocaleString()} ج.م.\nممكن نتفق على ميعاد التحصيل؟\nشكراً لحضراتكم.`;
+  copyToClipboard(text);
+}
+
+function renderAging() {
+  const report = getAgingReport();
+  const tbody = document.getElementById('agingTable');
+  document.getElementById('agingEmpty').style.display = report.length ? 'none' : 'block';
+  tbody.innerHTML = report.map(({ customer, aging }) => {
+    const total = aging.buckets.d0_30 + aging.buckets.d31_60 + aging.buckets.d61_90 + aging.buckets.d90plus;
+    return `
+      <tr>
+        <td>${esc(customer.name)}</td>
+        <td>${aging.buckets.d0_30.toLocaleString()}</td>
+        <td>${aging.buckets.d31_60.toLocaleString()}</td>
+        <td class="${aging.buckets.d61_90 > 0 ? 'debt' : ''}">${aging.buckets.d61_90.toLocaleString()}</td>
+        <td class="${aging.buckets.d90plus > 0 ? 'debt' : ''}">${aging.buckets.d90plus.toLocaleString()}</td>
+        <td><strong>${total.toLocaleString()}</strong></td>
+      </tr>`;
+  }).join('');
+}
+
+function renderCustomerSelects() {
+  const customers = getAll(STORAGE_KEYS.CUSTOMERS);
+  document.getElementById('r_customer').innerHTML = customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.code ? " (" + esc(c.code) + ")" : ""}</option>`).join('');
+}
+
+document.getElementById('customerForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  addCustomer({
+    name: document.getElementById('c_name').value.trim(),
+    code: document.getElementById('c_code').value.trim(),
+    category: document.getElementById('c_category').value.trim() || 'عام',
+    phone: document.getElementById('c_phone').value.trim(),
+    openingBalance: Number(document.getElementById('c_opening').value) || 0,
+    openingBalanceDate: document.getElementById('c_openingDate').value || null,
+    creditLimit: Number(document.getElementById('c_limit').value) || 0,
+    discountRate: Number(document.getElementById('c_discount').value) || 0,
+  });
+  e.target.reset();
+  refresh();
+});
+
+document.getElementById('r_method').addEventListener('change', (e) => {
+  document.getElementById('checkFields').style.display = e.target.value === 'check' ? 'flex' : 'none';
+});
+
+document.getElementById('receiptForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const customerId = document.getElementById('r_customer').value;
+  if (!customerId) { alert('أضف عميل أولاً'); return; }
+  const method = document.getElementById('r_method').value;
+
+  let checkDetails = null;
+  if (method === 'check') {
+    checkDetails = {
+      checkNumber: document.getElementById('ck_number').value.trim(),
+      bankName: document.getElementById('ck_bank').value.trim(),
+      dueDate: document.getElementById('ck_due').value || null,
+      deliveryType: document.getElementById('ck_deliveryType').value,
+      deliveryDate: document.getElementById('ck_deliveryDate').value || null,
+    };
+    if (!checkDetails.checkNumber || !checkDetails.dueDate) {
+      alert('أدخل رقم الشيك وتاريخ الاستحقاق على الأقل');
+      return;
+    }
+  }
+
+  recordReceipt({
+    customerId,
+    amount: Number(document.getElementById('r_amount').value),
+    method,
+    checkDetails,
+  });
+  e.target.reset();
+  document.getElementById('checkFields').style.display = 'none';
+  refresh();
+});
+
+function showStatement(customerId) {
+  const customer = getAll(STORAGE_KEYS.CUSTOMERS).find(c => c.id === customerId);
+  const lines = getCustomerStatement(customerId);
+  const mix = getCustomerCashCreditMix(customerId);
+  document.getElementById('statementTitle').textContent = `كشف حساب: ${customer?.name || ''}`;
+  document.getElementById('statementMix').textContent =
+    `بخصم: ${mix.cashCount} فاتورة (${mix.cashValue.toLocaleString()}) — بدون خصم: ${mix.creditCount} فاتورة (${mix.creditValue.toLocaleString()})`;
+  document.getElementById('statementTable').innerHTML = lines.map(l => `
+    <tr>
+      <td>${new Date(l.date).toLocaleDateString('ar-EG')}</td>
+      <td>${l.type}</td>
+      <td>${l.debit ? l.debit.toLocaleString() : '-'}</td>
+      <td>${l.credit ? l.credit.toLocaleString() : '-'}</td>
+      <td class="${l.balance > 0 ? 'debt' : (l.balance < 0 ? 'credit' : '')}">${l.balance.toLocaleString()}</td>
+    </tr>`).join('') || '<tr><td colspan="5" class="muted">لا توجد حركات</td></tr>';
+  document.getElementById('statementBox').style.display = 'block';
+  document.getElementById('statementBox').scrollIntoView({ behavior: 'smooth' });
+}
+
+document.getElementById('closeStatement').addEventListener('click', () => {
+  document.getElementById('statementBox').style.display = 'none';
+});
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('تم النسخ ✅');
+  } catch {
+    alert('تعذّر النسخ التلقائي، انسخ النص يدوياً:\n\n' + text);
+  }
+}
+
+
+document.getElementById('btnBulkCustomers').addEventListener('click', () => {
+  const box = document.getElementById('bulkCustomers');
+  if (!box.value.trim()) { alert('الصق البيانات الأول'); return; }
+  const r = importCustomers(box.value);
+  box.value = '';
+  refresh();
+  alert(`تم إضافة ${r.added} تاجر جديد ✅` + (r.coded ? `\nوإضافة كود لـ ${r.coded} تاجر موجود` : '') + (r.skipped.length ? `\nاتخطّيت ${r.skipped.length} مكرر: ${r.skipped.slice(0, 15).join('، ')}` : ''));
+});
+
+refresh();
+</script>
+</body>
+</html>

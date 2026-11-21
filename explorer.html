@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>المستكشف</title>
+<style>
+  :root{--bg:#EEF1F0;--card:#fff;--text:#16212B;--muted:#5B6572;--primary:#1F5065;--primary-dark:#123244;--danger:#A6402F;--border:#DCE1DF}
+  *{box-sizing:border-box} body{font-family:'Dubai','Segoe UI',Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:16px}
+  h1{font-size:21px;margin:0 0 4px;color:var(--primary-dark)} .card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:14px;border:1px solid var(--border);overflow-x:auto}
+  select,input,button{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;background:#fff;color:var(--text)}
+  button{background:var(--primary);color:#fff;border:none;font-weight:600;cursor:pointer} button.secondary{background:#E7EAE7;color:var(--text);border:1px solid var(--border)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px} .lbl{font-size:12px;color:var(--muted);font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:13px} th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+  th{color:var(--muted);font-size:12px;border-bottom:2px solid var(--border)} tr.tot td{font-weight:700;background:#F3F6F5} .muted{color:var(--muted);font-size:12.5px}
+  nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid #B8862E} nav a{text-decoration:none;background:#fff;color:var(--primary-dark);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;border:1px solid var(--border)}
+  .ms{min-width:150px;max-width:220px}
+</style>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<nav>
+  <a href="index.html">🏠 الرئيسية</a>
+  <a href="inventory.html">📦 المخزون</a>
+  <a href="customers.html">💰 العملاء</a>
+  <a href="dealer-stock.html">🏬 مخزون التجار</a>
+  <a href="invoices.html">📄 الفواتير</a>
+  <a href="targets.html">🎯 الأهداف</a>
+  <a href="dealer-targets.html">🎯 تارجت التجار</a>
+  <a href="analytics.html">📊 تحليل البيانات</a>
+  <a href="explorer.html" class="active">🔎 المستكشف</a>
+  <a href="supply.html">🚚 الإمداد</a>
+  <a href="dealer360.html">🧑‍💼 تاجر 360</a>
+  <a href="manager.html">📈 لوحة المدير</a>
+  <a href="promos.html">🏷 العروض</a>
+  <a href="help.html">❓ الدليل</a>
+</nav>
+<h1>🔎 مستكشف البيانات</h1>
+<p class="muted">اسحب أي رقم بأي زاوية. كل القيم <b>صافي بعد خصم التاجر وبعد استخراج الضريبة (÷ <span id="vatTxt">1.14</span>)</b>، والمرتجعات بالسالب.</p>
+<div class="card">
+  <div class="row">
+    <span class="lbl">الصفوف</span><select id="rowDim"></select>
+    <span class="lbl">الأعمدة</span><select id="colDim"><option value="">— بدون —</option></select>
+    <span class="lbl">المقياس</span><select id="measure">
+      <option value="net">القيمة (صافي)</option><option value="qty">الكمية</option><option value="dealers">عدد التجار</option><option value="products">عدد الأصناف</option><option value="avg">متوسط سعر القطعة</option></select>
+    <label class="lbl"><input type="checkbox" id="showShare"> % من الإجمالي</label>
+  </div>
+  <div class="row">
+    <span class="lbl">حسب</span><select id="basis"><option value="delivery">تاريخ التسليم (Delivered)</option><option value="order">تاريخ الطلب (كله)</option></select>
+    <span class="lbl">من</span><input type="date" id="from"><span class="lbl">إلى</span><input type="date" id="to">
+    <span class="lbl">ضريبة %</span><input type="number" id="vat" value="14" min="0" style="width:70px">
+  </div>
+  <div class="row" id="filters"></div>
+  <div class="row">
+    <button id="btnCsv" type="button">⬇ تصدير Excel/CSV</button>
+    <input type="text" id="repName" placeholder="اسم التقرير" style="width:160px"><button class="secondary" id="btnSave" type="button">💾 حفظ التقرير</button>
+    <select id="repList"><option value="">📂 تقارير محفوظة</option></select><button class="secondary" id="btnDel" type="button">🗑</button>
+  </div>
+</div>
+<div class="card"><table id="pivot"></table><p class="muted" id="cnt"></p></div>
+<script type="module">
+import { esc, initStorage, getFactRows, getSetting, setSetting } from './erp-data-layer.js';
+initStorage();
+const $=id=>document.getElementById(id), MON=['يناير','فبراير','مارس','إبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+const DIMS={customer:['العميل',r=>r.customer],code:['كود العميل',r=>r.code],division:['القسم',r=>r.division],family:['الفاميلي',r=>r.family],product:['الصنف',r=>r.sku?`${r.sku} — ${r.product.split(' — ').pop()}`:r.product],sku:['الكود',r=>r.sku],
+ year:['السنة',r=>r.date.slice(0,4)],quarter:['الربع',r=>`${r.date.slice(0,4)}-Q${Math.ceil(+r.date.slice(5,7)/3)}`],month:['الشهر',r=>r.date.slice(0,7)],monthName:['اسم الشهر',r=>MON[+r.date.slice(5,7)-1]],
+ itemStatus:['حالة الصنف',r=>r.itemStatus],orderStatus:['حالة الطلبية',r=>r.orderStatus],kind:['بيع/مرتجع',r=>r.kind],invoice:['رقم الفاتورة',r=>r.invoiceNo],order:['رقم الطلبية',r=>r.orderNumber]};
+const FILT=['customer','division','family','product','year','itemStatus'], sel={};
+const opts=(id,empty)=>$(id).innerHTML=(empty?'<option value="">— بدون —</option>':'')+Object.entries(DIMS).map(([k,v])=>`<option value="${k}">${v[0]}</option>`).join('');
+opts('rowDim');opts('colDim',true);$('colDim').innerHTML='<option value="">— بدون —</option>'+$('rowDim').innerHTML;$('rowDim').value='customer';
+let rows=[];
+function load(){rows=getFactRows({basis:$('basis').value,vatRate:+$('vat').value||0});$('vatTxt').textContent=(1+(+$('vat').value||0)/100);buildFilters();render();}
+function buildFilters(){$('filters').innerHTML=FILT.map(k=>`<div class="ms"><span class="lbl">${DIMS[k][0]}</span><select multiple size="3" data-f="${k}" style="width:100%">${[...new Set(rows.map(DIMS[k][1]))].sort((a,b)=>String(a).localeCompare(String(b),'ar')).map(v=>`<option value="${esc(v)}" ${(sel[k]||[]).includes(v)?'selected':''}>${esc(v)}</option>`).join('')}</select></div>`).join('')
+ +'<button class="secondary" id="clr" type="button">إلغاء الفلاتر</button>';
+ document.querySelectorAll('[data-f]').forEach(s=>s.addEventListener('change',()=>{sel[s.dataset.f]=[...s.selectedOptions].map(o=>o.value);render();}));$('clr').onclick=()=>{for(const k in sel)delete sel[k];$('from').value=$('to').value='';buildFilters();render();};}
+function agg(list,m){const q=list.reduce((s,r)=>s+r.qty,0),n=list.reduce((s,r)=>s+r.net,0);
+ return m==='net'?n:m==='qty'?q:m==='dealers'?new Set(list.map(r=>r.customerId)).size:m==='products'?new Set(list.map(r=>r.productId)).size:(q?n/q:0);}
+const fmt=(v,m)=>m==='net'||m==='avg'?Math.round(v).toLocaleString('en-US'):v.toLocaleString('en-US');
+function filtered(){const f=$('from').value,t=$('to').value;return rows.filter(r=>(!f||r.date>=f)&&(!t||r.date<=t)&&FILT.every(k=>!(sel[k]&&sel[k].length)||sel[k].includes(String(DIMS[k][1](r)))));}
+let last=[];
+function render(){const m=$('measure').value,rk=$('rowDim').value,ck=$('colDim').value,data=filtered(),rg=new Map(),cols=new Set();
+ data.forEach(r=>{const a=String(DIMS[rk][1](r)),b=ck?String(DIMS[ck][1](r)):'';cols.add(b);if(!rg.has(a))rg.set(a,[]);rg.get(a).push(r);});
+ const cl=[...cols].sort((a,b)=>a.localeCompare(b,'ar')),tot=agg(data,m),share=$('showShare').checked&&(m==='net'||m==='qty');
+ let out=[...rg.entries()].map(([k,l])=>({k,l,v:agg(l,m),cells:cl.map(c=>agg(l.filter(r=>!ck||String(DIMS[ck][1](r))===c),m))})).sort((a,b)=>b.v-a.v);
+ last=[[DIMS[rk][0],...(ck?cl:[]),'الإجمالي',...(share?['%']:[])],...out.map(o=>[o.k,...(ck?o.cells:[]),o.v,...(share?[tot?Math.round(o.v/tot*1000)/10:0]:[])]),['الإجمالي',...(ck?cl.map(c=>agg(data.filter(r=>String(DIMS[ck][1](r))===c),m)):[]),tot,...(share?[100]:[])]];
+ $('pivot').innerHTML='<thead><tr>'+last[0].map(h=>`<th>${esc(h)}</th>`).join('')+'</tr></thead><tbody>'+last.slice(1).map((r,i)=>`<tr class="${i===last.length-2?'tot':''}">`+r.map((v,j)=>`<td>${j===0?esc(v):(typeof v==='number'?fmt(v,m):v)}${share&&j===r.length-1&&typeof v==='number'?'%':''}</td>`).join('')+'</tr>').join('')+'</tbody>';
+ $('cnt').textContent=`${data.length.toLocaleString()} سطر بيع/مرتجع`;}
+['rowDim','colDim','measure','showShare','from','to'].forEach(i=>$(i).addEventListener('change',render));['basis','vat'].forEach(i=>$(i).addEventListener('change',load));
+$('btnCsv').onclick=()=>{const q=v=>`"${String(v).replace(/"/g,'""')}"`,a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+last.map(r=>r.map(q).join(',')).join('\n')],{type:'text/csv;charset=utf-8;'}));a.download='تقرير-المستكشف.csv';a.click();};
+const KEYS=['rowDim','colDim','measure','basis','from','to','vat'];
+function repsList(){const r=getSetting('savedReports',{});$('repList').innerHTML='<option value="">📂 تقارير محفوظة</option>'+Object.keys(r).map(n=>`<option>${esc(n)}</option>`).join('');return r;}
+$('btnSave').onclick=()=>{const n=$('repName').value.trim();if(!n){alert('اكتب اسم التقرير');return;}const r=getSetting('savedReports',{});r[n]={...Object.fromEntries(KEYS.map(k=>[k,$(k).value])),share:$('showShare').checked,sel:JSON.parse(JSON.stringify(sel))};setSetting('savedReports',r);repsList();$('repList').value=n;alert('تم حفظ التقرير ✅');};
+$('repList').onchange=()=>{const x=repsList()[$('repList').value];if(!x)return;KEYS.forEach(k=>$(k).value=x[k]);$('showShare').checked=!!x.share;for(const k in sel)delete sel[k];Object.assign(sel,x.sel||{});$('repName').value=$('repList').value;load();};
+$('btnDel').onclick=()=>{const n=$('repList').value;if(!n||!confirm('مسح التقرير ده؟'))return;const r=getSetting('savedReports',{});delete r[n];setSetting('savedReports',r);repsList();};
+repsList();load();
+</script>
+</body>
+</html>
