@@ -114,7 +114,7 @@ import {
   getAllCustomerBalances, getOverCreditLimitCustomers,
   getOrdersNeedingRenewal,
   getTopCustomers, getTopProducts, getMonthlyScorecard, getDaysSinceLastBackup,
-  getAgingReport, getFactRows, getDealerTargetsOverview, getAtpWatchlist, getDeferredOrders,
+  getAgingReport, getDealerTargetsOverview, getAtpWatchlist, getDeferredOrders, getSelloutAnalysis, getDealerSellThrough,
 } from './erp-data-layer.js';
 
 initStorage();
@@ -122,15 +122,6 @@ initStorage();
 function currentPeriod() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function topFacts(period, limit) {
-  const rows = getFactRows({ basis: 'delivery', vatRate: 14 }).filter(r => r.date.startsWith(period));
-  const agg = (key, init) => { const m = new Map(); rows.forEach(r => { const a = m.get(r[key]) || init(r); a.qty += r.qty; a.value += r.net; m.set(r[key], a); }); return [...m.values()].filter(a => a.value > 0).sort((a, b) => b.value - a.value).slice(0, limit); };
-  return {
-    customers: agg('customerId', r => ({ customer: { name: r.customer }, qty: 0, value: 0 })).map(a => ({ customer: a.customer, total: Math.round(a.value) })),
-    products: agg('productId', r => ({ product: { name: r.sku ? `${r.sku} — ${r.product.split(' — ').pop()}` : r.product }, qty: 0, value: 0 })).map(a => ({ ...a, value: Math.round(a.value) })),
-  };
 }
 
 function renderKpis() {
@@ -208,6 +199,17 @@ function renderDealerBehind() {
   if (rows.length) TODAY.push({ id: 'dealerBehindCard', icon: '🎯', label: 'تجار متأخرين عن Slab 1', count: rows.length, sev: 'sev-warn' });
 }
 
+function renderSellout() {
+  const to = new Date().toISOString().slice(0, 10), from = `${to.slice(0, 4)}-01-01`, r = getSelloutAnalysis({ from, to });
+  if (!r.byDealer.length) return;
+  const over = r.byDealer.filter(d => d.sellIn !== null && d.sellIn >= 5 && d.units < d.sellIn * 0.5);
+  const zero = [];
+  r.byDealer.filter(d => d.customerId).forEach(d => getDealerSellThrough(d.customerId, { from, to }).filter(x => x.est !== null && x.est <= 0 && x.sellOut > 0).forEach(x => zero.push({ dealer: d.name, ...x })));
+  const link = '<p class="muted"><a href="sellout.html">فتح سيل أوت ←</a></p>';
+  if (over.length) addPanel('p_so_over', '📤', 'توريد أكتر من البيع', over.length, 'sev-warn', `<h2>📤 توريد أكتر من البيع (سيل أوت أقل من 50% من سيل إن)</h2><ul>${over.map(d => `<li>${esc(d.name)} — سيل أوت ${d.units.toLocaleString()} مقابل سيل إن ${d.sellIn.toLocaleString()}</li>`).join('')}</ul>${link}`);
+  if (zero.length) addPanel('p_so_zero', '🛒', 'بيبيع ورصيده صفر', zero.length, 'sev-bad', `<h2>🛒 أصناف بتتباع ورصيدها التقديري صفر أو أقل (فرصة توريد، أو العدّ قديم)</h2><ul>${zero.slice(0, 30).map(x => `<li>${esc(x.dealer)} — <span dir="ltr">${esc(x.sku || x.name)}</span> (سيل أوت ${x.sellOut}، تقديري ${x.est})</li>`).join('')}</ul>${link}`);
+}
+
 function renderTiles() {
   const box = document.getElementById('alertsBox');
   if (!TODAY.length) { box.innerHTML = '<p class="all-clear">✅ مفيش تنبيهات دلوقتي — كل حاجة تمام.</p>'; return; }
@@ -224,15 +226,15 @@ function renderTiles() {
 function renderTopLists() {
   const period = document.getElementById('reportPeriod').value || currentPeriod();
   document.getElementById('reportPeriod').value = period;
-  document.getElementById('topCustomersTitle').textContent = `🏆 أكبر 5 عملاء — ${period} (مسلَّم، صافي)`;
-  document.getElementById('topProductsTitle').textContent = `📦 أكتر 5 منتجات مبيعاً — ${period} (مسلَّم، صافي)`;
+  document.getElementById('topCustomersTitle').textContent = `🏆 أكبر 5 عملاء — ${period}`;
+  document.getElementById('topProductsTitle').textContent = `📦 أكتر 5 منتجات مبيعاً — ${period}`;
 
-  const topCustomers = topFacts(period, 5).customers;
+  const topCustomers = getTopCustomers(period, 5);
   document.getElementById('topCustomers').innerHTML = topCustomers.length
     ? topCustomers.map(r => `<tr><td>${esc(r.customer.name)}</td><td>${r.total.toLocaleString()}</td></tr>`).join('')
     : '<tr><td colspan="2" class="muted">لا توجد مبيعات في هذا الشهر</td></tr>';
 
-  const topProducts = topFacts(period, 5).products;
+  const topProducts = getTopProducts(period, 5);
   document.getElementById('topProducts').innerHTML = topProducts.length
     ? topProducts.map(r => `<tr><td>${esc(r.product.name)}</td><td>${r.qty}</td><td>${r.value.toLocaleString()}</td></tr>`).join('')
     : '<tr><td colspan="3" class="muted">لا توجد مبيعات في هذا الشهر</td></tr>';
@@ -255,8 +257,8 @@ function exportMonthlyReport() {
   const totalDebtNow = customers.reduce((s, c) => s + Math.max(balances[c.id] || 0, 0), 0);
 
   const scorecard = getMonthlyScorecard(period);
-  const topCustomers = topFacts(period, 10).customers;
-  const topProducts = topFacts(period, 10).products;
+  const topCustomers = getTopCustomers(period, 10);
+  const topProducts = getTopProducts(period, 10);
   const aging = getAgingReport();
 
   const rows = [];
@@ -307,6 +309,7 @@ renderAlerts();
 renderAtp();
 renderDeferred();
 renderDealerBehind();
+renderSellout();
 renderTiles();
 renderTopLists();
 </script>

@@ -40,14 +40,10 @@ if (location.protocol === 'file:') {
   document.addEventListener('DOMContentLoaded', () => {
     const nav = document.querySelector('nav');
     if (!nav) return;
+    if (!nav.querySelector('a[href="sellout.html"]')) { const a = document.createElement('a'); a.href = 'sellout.html'; a.textContent = '📤 سيل أوت'; const h = nav.querySelector('a[href="help.html"]'); nav.insertBefore(a, h || null); }
     const cur = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
-    let links = [...nav.querySelectorAll(':scope > a')];
+    const links = [...nav.querySelectorAll(':scope > a')];
     const hrefOf = (a) => (a.getAttribute('href') || '').toLowerCase();
-    // صفحات مدمجة: بتتفتح من جوه صفحات تانية (المستكشف من التحليل، الإمداد من لوحة المدير، تاجر 360 من تارجت التجار)
-    const HIDDEN = ['dealer360.html', 'explorer.html', 'supply.html', 'checks.html'];
-    links.filter((a) => HIDDEN.includes(hrefOf(a))).forEach((a) => a.remove());
-    links = links.filter((a) => !HIDDEN.includes(hrefOf(a)));
-    if (!links.some((a) => hrefOf(a) === 'maintenance.html')) { const m = document.createElement('a'); m.href = 'maintenance.html'; m.textContent = '🛠 صيانة'; nav.appendChild(m); links.push(m); }
 
     // ----- "المزيد" -----
     const rest = links.filter((a) => !PINNED.includes(hrefOf(a)));
@@ -78,6 +74,19 @@ if (location.protocol === 'file:') {
     document.getElementById('navBackup').addEventListener('click', async () => {
       try { (await load()).downloadBackup(); toast('تم تنزيل النسخة الاحتياطية ✅'); } catch (e) { nativeAlert('تعذّر تنزيل النسخة الاحتياطية'); }
     });
+    // ----- سحب سيل أوت تلقائي من شيت البروموتر (لو الإعداد متحفظ في صفحة سيل أوت): مرة كل 5 دقايق على الأكتر -----
+    (async () => {
+      try {
+        const m = await load();
+        const cfg = m.getSetting('selloutCfg', {}) || {};
+        if (!cfg.url || !cfg.rkey) return;
+        const last = m.getSetting('selloutLastPull', '');
+        if (last && Date.now() - new Date(last).getTime() < 300000) return;
+        const r = await m.pullSellout();
+        if (r.ok && (r.added || r.voids)) { toast('📤 اتسحب ' + r.added + ' عملية جديدة من شيت البروموتر ✅'); window.dispatchEvent(new Event('sellout-pulled')); }
+        else if (!r.ok) console.warn('sellout pull failed:', r.reason);
+      } catch (e) { console.warn('sellout pull error', e); }
+    })();
     const fileInput = document.getElementById('navRestoreFile');
     document.getElementById('navRestore').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => {
